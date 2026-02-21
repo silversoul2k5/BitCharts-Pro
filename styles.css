@@ -1,0 +1,658 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
+
+:root {
+  --radius: 14px;
+  --panel-border: 1px solid color-mix(in srgb, var(--line), transparent 50%);
+  --focus: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 45%);
+}
+
+body.theme-dark {
+  --bg-0: #050b14;
+  --bg-1: #0a1628;
+  --bg-2: #0d2238;
+  --panel: rgba(11, 24, 40, 0.82);
+  --panel-alt: rgba(12, 20, 31, 0.9);
+  --text: #edf2ff;
+  --muted: #8ca1bd;
+  --line: #223b61;
+  --accent: #21c98f;
+  --warn: #f19a39;
+  --buy: #27d17f;
+  --sell: #f15863;
+}
+
+body.theme-light {
+  --bg-0: #f2f6ff;
+  --bg-1: #dbe8ff;
+  --bg-2: #d5f2ec;
+  --panel: rgba(255, 255, 255, 0.9);
+  --panel-alt: rgba(249, 252, 255, 0.95);
+  --text: #0d1b2f;
+  --muted: #4f6684;
+  --line: #c3d2eb;
+  --accent: #1ba574;
+  --warn: #b87120;
+  --buy: #0d9f5f;
+  --sell: #da4453;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px circle at 12% 6%, color-mix(in srgb, var(--bg-2), transparent 62%), transparent 55%),
+    radial-gradient(800px circle at 85% 14%, color-mix(in srgb, var(--accent), transparent 89%), transparent 45%),
+    linear-gradient(160deg, var(--bg-0), var(--bg-1));
+}
+
+.app-shell {
+  width: min(1780px, 100% - 24px);
+  margin: 12px auto;
+  display: grid;
+  gap: 12px;
+}
+
+.topbar {
+  background: var(--panel);
+  border: var(--panel-border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  backdrop-filter: blur(8px);
+  display: grid;
+  gap: 12px;
+}
+
+.brand-wrap {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.brand-wrap h1 {
+  margin: 0;
+  font-size: 1.3rem;
+  letter-spacing: 0.02em;
+}
+
+.tag {
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field > span {
+  font-size: 0.76rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+input,
+select,
+button {
+  font: inherit;
+  color: var(--text);
+}
+
+input,
+select {
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-alt);
+  padding: 8px 10px;
+}
+
+input:focus,
+select:focus,
+button:focus {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.interval-group,
+.actions {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+.actions {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+button {
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-alt), transparent 20%);
+  border-radius: 10px;
+  padding: 8px 9px;
+  cursor: pointer;
+  transition: background 180ms ease, transform 140ms ease;
+}
+
+button:hover {
+  background: color-mix(in srgb, var(--accent), transparent 82%);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button.active {
+  border-color: color-mix(in srgb, var(--accent), transparent 26%);
+  background: color-mix(in srgb, var(--accent), transparent 76%);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 350px;
+  gap: 12px;
+  height: min(860px, calc(100dvh - 150px));
+  min-height: 560px;
+}
+
+.chart-zone {
+  background: var(--panel);
+  border: var(--panel-border);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(340px, 1fr) 160px 180px;
+  gap: 10px;
+  backdrop-filter: blur(8px);
+  min-height: 0;
+}
+
+.meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+#market-title {
+  font-weight: 500;
+}
+
+#ohlc-row {
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.status-pill {
+  border-radius: 99px;
+  padding: 4px 10px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.status-pill.connected {
+  color: var(--buy);
+  background: color-mix(in srgb, var(--buy), transparent 88%);
+}
+
+.status-pill.disconnected {
+  color: var(--sell);
+  background: color-mix(in srgb, var(--sell), transparent 87%);
+}
+
+.status-pill.neutral {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn), transparent 87%);
+}
+
+.indicator-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.indicator-switches label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.indicator-switches input {
+  accent-color: var(--accent);
+}
+
+.ai-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-status {
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid color-mix(in srgb, var(--line), transparent 30%);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.ai-status.neutral {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn), transparent 88%);
+}
+
+.ai-status.ready {
+  color: var(--buy);
+  background: color-mix(in srgb, var(--buy), transparent 88%);
+}
+
+.ai-status.error {
+  color: var(--sell);
+  background: color-mix(in srgb, var(--sell), transparent 88%);
+}
+
+.ai-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.ai-auto input {
+  accent-color: var(--accent);
+}
+
+.ai-timeframes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ai-card {
+  border: 1px solid color-mix(in srgb, var(--line), transparent 35%);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--panel-alt), transparent 18%);
+  font-size: 0.76rem;
+  display: grid;
+  gap: 4px;
+}
+
+.ai-card.active {
+  border-color: color-mix(in srgb, var(--accent), transparent 20%);
+  background: color-mix(in srgb, var(--accent), transparent 90%);
+}
+
+.ai-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.ai-card-bias {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ai-card-bias.bullish {
+  color: var(--buy);
+}
+
+.ai-card-bias.bearish {
+  color: var(--sell);
+}
+
+.ai-card-bias.neutral {
+  color: var(--warn);
+}
+
+.ai-card-levels {
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.pane {
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--line), transparent 40%);
+  background: color-mix(in srgb, var(--panel-alt), transparent 25%);
+  position: relative;
+  overflow: hidden;
+}
+
+.pane-sub {
+  min-height: 120px;
+}
+
+.pane-label {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  z-index: 2;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.multi-grid {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  height: 100%;
+  align-content: stretch;
+  grid-auto-rows: minmax(0, 1fr);
+}
+
+.multi-grid[data-count="2"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.multi-grid[data-count="3"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.multi-grid[data-count="3"] .multi-card[data-slot="2"] {
+  grid-column: 1 / -1;
+}
+
+.multi-grid[data-count="4"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.multi-card {
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--line), transparent 40%);
+  background: color-mix(in srgb, var(--panel-alt), transparent 25%);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.multi-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line), transparent 45%);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.multi-symbol {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-alt);
+  color: var(--text);
+  padding: 4px 8px;
+  width: 130px;
+}
+
+.multi-status {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.multi-chart {
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.multi-grid[data-count="2"] .multi-card,
+.multi-grid[data-count="3"] .multi-card,
+.multi-grid[data-count="4"] .multi-card {
+  min-height: 220px;
+}
+
+.layout.multi-view {
+  grid-template-columns: 1fr;
+  height: min(920px, calc(100dvh - 150px));
+  min-height: 520px;
+}
+
+.layout.multi-view .market-zone {
+  display: none;
+}
+
+.chart-zone.multi-view {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.chart-zone.multi-view .indicator-switches,
+.chart-zone.multi-view .ai-toolbar,
+.chart-zone.multi-view .ai-timeframes,
+.chart-zone.multi-view #price-pane,
+.chart-zone.multi-view #rsi-pane,
+.chart-zone.multi-view #macd-pane {
+  display: none;
+}
+
+.chart-zone:not(.multi-view) .multi-grid {
+  display: none;
+}
+
+.chart-zone:fullscreen {
+  border-radius: 0;
+  border: none;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 12px;
+}
+
+.chart-zone:-webkit-full-screen {
+  border-radius: 0;
+  border: none;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 12px;
+}
+
+.chart {
+  width: 100%;
+  height: 100%;
+}
+
+.market-zone {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 12px;
+  min-height: 0;
+}
+
+.panel {
+  background: var(--panel);
+  border: var(--panel-border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(8px);
+  padding: 12px;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.book-head,
+.trades-head,
+.book-row,
+.trade-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.76rem;
+}
+
+.book-head,
+.trades-head {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.orderbook-grid,
+.trades-grid {
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  padding-right: 2px;
+}
+
+.book-row.ask {
+  color: var(--sell);
+  background: color-mix(in srgb, var(--sell), transparent 90%);
+}
+
+.book-row.bid {
+  color: var(--buy);
+  background: color-mix(in srgb, var(--buy), transparent 90%);
+}
+
+.book-row,
+.trade-row {
+  border-radius: 8px;
+  padding: 5px 6px;
+}
+
+.trade-row.buy {
+  color: var(--buy);
+}
+
+.trade-row.sell {
+  color: var(--sell);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+@media (max-width: 1180px) {
+  .controls {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .layout {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+  }
+
+  .layout.multi-view {
+    height: auto;
+    min-height: 0;
+  }
+
+  .market-zone {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: minmax(230px, 34vh);
+  }
+
+  .chart-zone {
+    min-height: 560px;
+  }
+
+  .multi-chart {
+    min-height: 180px;
+  }
+
+  .ai-timeframes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    width: calc(100% - 12px);
+    margin: 6px auto;
+  }
+
+  .controls,
+  .market-zone,
+  .actions {
+    grid-template-columns: 1fr;
+  }
+
+  .interval-group {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .layout {
+    height: auto;
+    min-height: 0;
+    gap: 8px;
+  }
+
+  .layout.multi-view {
+    height: auto;
+    min-height: 0;
+  }
+
+  .chart-zone {
+    min-height: 460px;
+    padding: 10px;
+  }
+
+  .multi-grid {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: none !important;
+    grid-auto-rows: minmax(220px, 1fr);
+  }
+
+  .multi-chart {
+    min-height: 0;
+  }
+
+  .market-zone {
+    grid-template-rows: repeat(2, minmax(190px, 32vh));
+  }
+
+  .meta-row {
+    flex-wrap: wrap;
+  }
+
+  .ai-timeframes {
+    grid-template-columns: 1fr;
+  }
+}

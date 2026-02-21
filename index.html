@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BitCharts Pro</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="theme-dark">
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-wrap">
+          <h1>BitCharts Pro</h1>
+          <span class="tag">Binance Market Terminal</span>
+        </div>
+
+        <div class="controls">
+          <label class="field">
+            <span>Symbol</span>
+            <input id="symbol-input" type="text" value="BTCUSDT" autocomplete="off" spellcheck="false" />
+          </label>
+
+          <div class="field">
+            <span>Interval</span>
+            <div id="interval-group" class="interval-group" role="group" aria-label="Interval">
+              <button data-interval="1m" class="active">1m</button>
+              <button data-interval="5m">5m</button>
+              <button data-interval="15m">15m</button>
+              <button data-interval="1h">1h</button>
+              <button data-interval="4h">4h</button>
+              <button data-interval="1d">1D</button>
+            </div>
+          </div>
+
+          <label class="field">
+            <span>Chart Type</span>
+            <select id="chart-type">
+              <option value="candles">Candles</option>
+              <option value="line">Line</option>
+              <option value="area">Area</option>
+              <option value="baseline">Baseline</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Multi View</span>
+            <select id="multi-count">
+              <option value="1" selected>1 Chart</option>
+              <option value="2">2 Charts</option>
+              <option value="3">3 Charts</option>
+              <option value="4">4 Charts</option>
+            </select>
+          </label>
+
+          <div class="field">
+            <span>Actions</span>
+            <div class="actions">
+              <button id="reload-btn">Reload</button>
+              <button id="ai-refresh-btn">AI Analyze</button>
+              <button id="fullscreen-btn">Fullscreen</button>
+              <button id="theme-btn">Toggle Theme</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="chart-zone">
+          <div class="meta-row">
+            <div id="market-title">BTCUSDT • 1m</div>
+            <div id="ohlc-row">Waiting for data...</div>
+            <div id="status-pill" class="status-pill neutral">Connecting</div>
+          </div>
+
+          <div class="indicator-switches">
+            <label><input id="show-volume" type="checkbox" checked />Volume</label>
+            <label><input id="show-sma" type="checkbox" checked />SMA 20</label>
+            <label><input id="show-ema" type="checkbox" checked />EMA 50</label>
+            <label><input id="show-bb" type="checkbox" checked />Bollinger</label>
+            <label><input id="show-rsi" type="checkbox" checked />RSI 14</label>
+            <label><input id="show-macd" type="checkbox" checked />MACD 12/26/9</label>
+          </div>
+
+          <div class="ai-toolbar">
+            <div id="ai-status" class="ai-status neutral">AI idle</div>
+            <label class="ai-auto"><input id="ai-auto" type="checkbox" checked />Auto refresh</label>
+          </div>
+
+          <div id="ai-timeframes" class="ai-timeframes"></div>
+
+          <div id="price-pane" class="pane pane-main">
+            <div id="price-chart" class="chart"></div>
+          </div>
+
+          <div id="rsi-pane" class="pane pane-sub">
+            <div class="pane-label">RSI</div>
+            <div id="rsi-chart" class="chart"></div>
+          </div>
+
+          <div id="macd-pane" class="pane pane-sub">
+            <div class="pane-label">MACD</div>
+            <div id="macd-chart" class="chart"></div>
+          </div>
+
+          <div id="multi-grid" class="multi-grid" hidden></div>
+        </section>
+
+        <aside class="market-zone">
+          <section class="panel">
+            <h2>Order Book</h2>
+            <div class="book-head">
+              <span>Price</span>
+              <span>Amount</span>
+              <span>Total</span>
+            </div>
+            <div id="orderbook" class="orderbook-grid"></div>
+          </section>
+
+          <section class="panel">
+            <h2>Recent Trades</h2>
+            <div class="trades-head">
+              <span>Time</span>
+              <span>Price</span>
+              <span>Qty</span>
+            </div>
+            <div id="trades" class="trades-grid"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

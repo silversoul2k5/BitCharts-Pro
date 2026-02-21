@@ -1,0 +1,9 @@
+{
+  "name": "bitcharts-pro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Binance chart terminal with Gemini-powered AI analysis",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
