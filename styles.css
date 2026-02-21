@@ -199,6 +199,7 @@ button.active {
   gap: 10px;
   backdrop-filter: blur(8px);
   min-height: 0;
+  position: relative;
 }
 
 .meta-row {
@@ -207,6 +208,7 @@ button.active {
   gap: 10px;
   justify-content: space-between;
   font-family: "IBM Plex Mono", monospace;
+  padding-right: 46px;
 }
 
 #market-title {
@@ -216,6 +218,109 @@ button.active {
 #ohlc-row {
   font-size: 0.84rem;
   color: var(--muted);
+}
+
+.layout-menu-wrap {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 30;
+}
+
+.layout-menu-toggle {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.95rem;
+}
+
+.layout-menu-panel {
+  margin-top: 8px;
+  width: 170px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--line), transparent 28%);
+  background: color-mix(in srgb, var(--panel), transparent 6%);
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.32);
+  padding: 10px;
+  display: grid;
+  gap: 7px;
+  backdrop-filter: blur(10px);
+}
+
+.layout-menu-title {
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.layout-menu-row {
+  display: grid;
+  grid-template-columns: 20px repeat(2, 28px);
+  align-items: center;
+  gap: 8px;
+}
+
+.layout-menu-num {
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.82rem;
+}
+
+.layout-option {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+}
+
+.layout-option.active {
+  border-color: color-mix(in srgb, var(--accent), transparent 24%);
+  background: color-mix(in srgb, var(--accent), transparent 82%);
+}
+
+.layout-icon {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  gap: 2px;
+}
+
+.layout-icon i {
+  border: 1px solid color-mix(in srgb, var(--muted), transparent 24%);
+  border-radius: 2px;
+  display: block;
+}
+
+.layout-icon.grid-1 {
+  grid-template-columns: 1fr;
+}
+
+.layout-icon.grid-2-cols {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.layout-icon.grid-2-rows {
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.layout-icon.grid-3-cols {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.layout-icon.grid-3-rows {
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+}
+
+.layout-icon.grid-4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
 }
 
 .status-pill {
@@ -387,21 +492,32 @@ button.active {
   grid-auto-rows: minmax(0, 1fr);
 }
 
-.multi-grid[data-count="2"] {
+.multi-grid[data-layout="one"] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.multi-grid[data-layout="two-cols"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.multi-grid[data-layout="two-rows"] {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: repeat(2, minmax(0, 1fr));
 }
 
-.multi-grid[data-count="3"] {
+.multi-grid[data-layout="three-cols"] {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-template-rows: minmax(0, 1fr);
 }
 
-.multi-grid[data-count="3"] .multi-card[data-slot="2"] {
-  grid-column: auto;
+.multi-grid[data-layout="three-rows"] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: repeat(3, minmax(0, 1fr));
 }
 
-.multi-grid[data-count="4"] {
+.multi-grid[data-layout="four-grid"] {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-template-rows: repeat(2, minmax(0, 1fr));
 }
@@ -528,9 +644,11 @@ button.active {
   height: 100%;
 }
 
-.multi-grid[data-count="2"] .multi-card,
-.multi-grid[data-count="3"] .multi-card,
-.multi-grid[data-count="4"] .multi-card {
+.multi-grid[data-layout="two-cols"] .multi-card,
+.multi-grid[data-layout="two-rows"] .multi-card,
+.multi-grid[data-layout="three-cols"] .multi-card,
+.multi-grid[data-layout="three-rows"] .multi-card,
+.multi-grid[data-layout="four-grid"] .multi-card {
   min-height: 0;
 }
 
@@ -709,12 +827,12 @@ button.active {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .multi-grid[data-count="3"] {
+  .multi-grid[data-layout="three-cols"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: repeat(2, minmax(0, 1fr));
   }
 
-  .multi-grid[data-count="3"] .multi-card[data-slot="2"] {
+  .multi-grid[data-layout="three-cols"] .multi-card[data-slot="2"] {
     grid-column: 1 / -1;
   }
 
@@ -753,6 +871,15 @@ button.active {
   .chart-zone {
     min-height: 460px;
     padding: 10px;
+  }
+
+  .meta-row {
+    padding-right: 40px;
+  }
+
+  .layout-menu-toggle {
+    width: 30px;
+    height: 30px;
   }
 
   .multi-grid {

@@ -11,6 +11,19 @@
   const AI_KEY_HEADER = "X-Gemini-Api-Key";
   const AI_TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"];
   const MULTI_DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"];
+  const MULTI_LAYOUT_STORAGE_KEY = "bitcharts-multi-layouts";
+  const MULTI_LAYOUT_PRESETS = {
+    1: ["one"],
+    2: ["two-cols", "two-rows"],
+    3: ["three-cols", "three-rows"],
+    4: ["four-grid"]
+  };
+  const MULTI_LAYOUT_DEFAULTS = {
+    1: "one",
+    2: "two-cols",
+    3: "three-rows",
+    4: "four-grid"
+  };
 
   const PALETTES = {
     dark: {
@@ -47,6 +60,7 @@
     theme: localStorage.getItem("bitcharts-theme") === "light" ? "light" : "dark",
     chartType: "candles",
     multiCount: Number(localStorage.getItem("bitcharts-multi-count") || "1"),
+    multiLayouts: loadMultiLayouts(),
     candles: [],
     candleMap: new Map(),
     depth: { bids: [], asks: [] },
@@ -104,6 +118,10 @@
     showBb: document.getElementById("show-bb"),
     showRsi: document.getElementById("show-rsi"),
     showMacd: document.getElementById("show-macd"),
+    layoutMenu: document.getElementById("layout-menu"),
+    layoutMenuToggle: document.getElementById("layout-menu-toggle"),
+    layoutMenuPanel: document.getElementById("layout-menu-panel"),
+    layoutOptions: document.querySelectorAll(".layout-option"),
     aiAuto: document.getElementById("ai-auto"),
     aiStatus: document.getElementById("ai-status"),
     aiTimeframes: document.getElementById("ai-timeframes"),
@@ -168,6 +186,9 @@
     dom.aiAuto.checked = state.ai.auto;
     dom.multiCount.value = String(state.multiCount);
     dom.geminiKeyInput.value = state.ai.apiKey;
+    ensureMultiLayoutDefaults();
+    updateLayoutMenuState();
+    closeLayoutMenu();
     setAiStatus("neutral", "AI idle");
     renderAiCards();
 
@@ -269,6 +290,39 @@
       setViewMode(count);
     });
 
+    dom.layoutMenuToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (dom.layoutMenuPanel.hidden) {
+        openLayoutMenu();
+      } else {
+        closeLayoutMenu();
+      }
+    });
+
+    dom.layoutMenuPanel.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const option = event.target.closest(".layout-option[data-count][data-layout]");
+      if (!option) {
+        return;
+      }
+
+      const count = Number(option.dataset.count);
+      const layout = option.dataset.layout;
+      setMultiLayoutPreset(count, layout);
+
+      if (count !== state.multiCount) {
+        setViewMode(count);
+      } else if (isMultiMode()) {
+        applyMultiLayoutToGrid();
+        requestAnimationFrame(() => {
+          resizeMultiCharts();
+          requestAnimationFrame(resizeMultiCharts);
+        });
+      }
+
+      closeLayoutMenu();
+    });
+
     dom.fullscreenBtn.addEventListener("click", () => {
       toggleChartFullscreen();
     });
@@ -319,6 +373,16 @@
 
     document.addEventListener("fullscreenchange", syncFullscreenButton);
     document.addEventListener("webkitfullscreenchange", syncFullscreenButton);
+    document.addEventListener("click", (event) => {
+      if (!dom.layoutMenu.contains(event.target)) {
+        closeLayoutMenu();
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeLayoutMenu();
+      }
+    });
   }
 
   function initCharts() {
@@ -1486,6 +1550,105 @@
     return nearest;
   }
 
+  function loadMultiLayouts() {
+    const fallback = {
+      1: MULTI_LAYOUT_DEFAULTS[1],
+      2: MULTI_LAYOUT_DEFAULTS[2],
+      3: MULTI_LAYOUT_DEFAULTS[3],
+      4: MULTI_LAYOUT_DEFAULTS[4]
+    };
+
+    const raw = localStorage.getItem(MULTI_LAYOUT_STORAGE_KEY);
+    if (!raw) {
+      return fallback;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") {
+        return fallback;
+      }
+
+      for (const count of [1, 2, 3, 4]) {
+        fallback[count] = normalizeLayoutPreset(count, parsed[count]);
+      }
+      return fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function ensureMultiLayoutDefaults() {
+    if (!state.multiLayouts || typeof state.multiLayouts !== "object") {
+      state.multiLayouts = loadMultiLayouts();
+      persistMultiLayouts();
+      return;
+    }
+
+    for (const count of [1, 2, 3, 4]) {
+      state.multiLayouts[count] = normalizeLayoutPreset(count, state.multiLayouts[count]);
+    }
+    persistMultiLayouts();
+  }
+
+  function normalizeLayoutPreset(count, layout) {
+    const allowed = MULTI_LAYOUT_PRESETS[count];
+    if (!allowed || !allowed.length) {
+      return MULTI_LAYOUT_DEFAULTS[1];
+    }
+
+    if (typeof layout === "string" && allowed.includes(layout)) {
+      return layout;
+    }
+    return MULTI_LAYOUT_DEFAULTS[count];
+  }
+
+  function resolveLayoutForCount(count) {
+    return normalizeLayoutPreset(count, state.multiLayouts[count]);
+  }
+
+  function persistMultiLayouts() {
+    localStorage.setItem(MULTI_LAYOUT_STORAGE_KEY, JSON.stringify(state.multiLayouts));
+  }
+
+  function setMultiLayoutPreset(count, layout) {
+    if (!Number.isInteger(count) || count < 1 || count > 4) {
+      return;
+    }
+
+    state.multiLayouts[count] = normalizeLayoutPreset(count, layout);
+    persistMultiLayouts();
+    updateLayoutMenuState();
+    if (state.multiCount === count) {
+      applyMultiLayoutToGrid();
+    }
+  }
+
+  function applyMultiLayoutToGrid() {
+    const layout = resolveLayoutForCount(state.multiCount);
+    dom.multiGrid.dataset.layout = layout;
+  }
+
+  function updateLayoutMenuState() {
+    const activeLayout = resolveLayoutForCount(state.multiCount);
+    dom.layoutOptions.forEach((option) => {
+      const count = Number(option.dataset.count);
+      const layout = option.dataset.layout;
+      option.classList.toggle("active", count === state.multiCount && layout === activeLayout);
+    });
+  }
+
+  function openLayoutMenu() {
+    updateLayoutMenuState();
+    dom.layoutMenuPanel.hidden = false;
+    dom.layoutMenuToggle.setAttribute("aria-expanded", "true");
+  }
+
+  function closeLayoutMenu() {
+    dom.layoutMenuPanel.hidden = true;
+    dom.layoutMenuToggle.setAttribute("aria-expanded", "false");
+  }
+
   function isMultiMode() {
     return state.multiCount > 1;
   }
@@ -1495,6 +1658,8 @@
     state.multiCount = normalized;
     localStorage.setItem("bitcharts-multi-count", String(state.multiCount));
     dom.multiCount.value = String(state.multiCount);
+    applyMultiLayoutToGrid();
+    updateLayoutMenuState();
 
     const multi = isMultiMode();
     dom.layout.classList.toggle("multi-view", multi);
@@ -1541,6 +1706,7 @@
     destroyMultiCharts();
 
     dom.multiGrid.dataset.count = String(state.multiCount);
+    applyMultiLayoutToGrid();
     dom.multiGrid.innerHTML = symbols
       .map(
         (symbol, index) => `

@@ -163,6 +163,7 @@ Security note:
 4. Click `AI Analyze`.
 5. Keep `Auto refresh` enabled for periodic updates.
 6. Switch `Multi View` to 2/3/4 to monitor multiple symbols.
+7. Use the top-right layout menu to change orientation presets (2 cols/rows, 3 cols/rows).
 
 Notes:
 - AI overlays are shown in both single-chart and multi-chart mode.

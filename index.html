@@ -88,6 +88,57 @@
             <div id="status-pill" class="status-pill neutral">Connecting</div>
           </div>
 
+          <div id="layout-menu" class="layout-menu-wrap">
+            <button
+              id="layout-menu-toggle"
+              class="layout-menu-toggle"
+              type="button"
+              aria-label="Chart layout menu"
+              aria-expanded="false"
+              title="Chart Layout Menu"
+            >
+              <span aria-hidden="true">▦</span>
+            </button>
+
+            <div id="layout-menu-panel" class="layout-menu-panel" hidden>
+              <div class="layout-menu-title">Multi Chart</div>
+
+              <div class="layout-menu-row">
+                <span class="layout-menu-num">1</span>
+                <button class="layout-option" type="button" data-count="1" data-layout="one" aria-label="1 chart">
+                  <span class="layout-icon grid-1"><i></i></span>
+                </button>
+              </div>
+
+              <div class="layout-menu-row">
+                <span class="layout-menu-num">2</span>
+                <button class="layout-option" type="button" data-count="2" data-layout="two-cols" aria-label="2 charts columns">
+                  <span class="layout-icon grid-2-cols"><i></i><i></i></span>
+                </button>
+                <button class="layout-option" type="button" data-count="2" data-layout="two-rows" aria-label="2 charts rows">
+                  <span class="layout-icon grid-2-rows"><i></i><i></i></span>
+                </button>
+              </div>
+
+              <div class="layout-menu-row">
+                <span class="layout-menu-num">3</span>
+                <button class="layout-option" type="button" data-count="3" data-layout="three-cols" aria-label="3 charts columns">
+                  <span class="layout-icon grid-3-cols"><i></i><i></i><i></i></span>
+                </button>
+                <button class="layout-option" type="button" data-count="3" data-layout="three-rows" aria-label="3 charts rows">
+                  <span class="layout-icon grid-3-rows"><i></i><i></i><i></i></span>
+                </button>
+              </div>
+
+              <div class="layout-menu-row">
+                <span class="layout-menu-num">4</span>
+                <button class="layout-option" type="button" data-count="4" data-layout="four-grid" aria-label="4 charts grid">
+                  <span class="layout-icon grid-4"><i></i><i></i><i></i><i></i></span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div class="indicator-switches">
             <label><input id="show-volume" type="checkbox" checked />Volume</label>
             <label><input id="show-sma" type="checkbox" checked />SMA 20</label>
