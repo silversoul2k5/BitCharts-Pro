@@ -21,9 +21,9 @@ const TELEGRAM_CHANNELS = (process.env.TELEGRAM_CHANNELS || '')
   .filter(Boolean)
   .slice(0, 6);
 
-const server = http.createServer(async (req, res) => {
+async function handleNodeRequest(req, res) {
   try {
-    const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const requestUrl = createRequestUrl(req);
 
     if (requestUrl.pathname === '/api/ai/analyze' && req.method === 'GET') {
       await handleAiAnalyze(req, requestUrl, res);
@@ -31,11 +31,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (requestUrl.pathname === '/api/health' && req.method === 'GET') {
-      sendJson(res, 200, {
-        ok: true,
-        now: new Date().toISOString(),
-        geminiConfigured: Boolean(process.env.GEMINI_API_KEY)
-      });
+      sendJson(res, 200, buildHealthPayload());
       return;
     }
 
@@ -48,12 +44,20 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     sendJson(res, 500, { ok: false, error: error?.message || 'Internal server error' });
   }
-});
+}
 
-server.listen(PORT, () => {
-  // eslint-disable-next-line no-console
-  console.log(`BitCharts Pro server listening on http://localhost:${PORT}`);
-});
+function createRequestUrl(req) {
+  const host = req.headers?.host || 'localhost';
+  return new URL(req.url || '/', `http://${host}`);
+}
+
+function buildHealthPayload() {
+  return {
+    ok: true,
+    now: new Date().toISOString(),
+    geminiConfigured: Boolean(process.env.GEMINI_API_KEY)
+  };
+}
 
 async function handleAiAnalyze(req, requestUrl, res) {
   const symbol = sanitizeSymbol(requestUrl.searchParams.get('symbol')) || 'BTCUSDT';
@@ -1158,6 +1162,12 @@ function clamp(value, min, max) {
 }
 
 function sendJson(res, statusCode, payload) {
+  if (typeof res.status === 'function' && typeof res.json === 'function') {
+    res.setHeader?.('Cache-Control', 'no-store');
+    res.status(statusCode).json(payload);
+    return;
+  }
+
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store'
@@ -1190,3 +1200,19 @@ function loadEnv(filePath) {
     }
   }
 }
+
+if (require.main === module) {
+  const server = http.createServer(handleNodeRequest);
+  server.listen(PORT, () => {
+    // eslint-disable-next-line no-console
+    console.log(`BitCharts Pro server listening on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = {
+  buildHealthPayload,
+  createRequestUrl,
+  handleAiAnalyze,
+  handleNodeRequest,
+  sendJson
+};

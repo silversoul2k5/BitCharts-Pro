@@ -912,7 +912,16 @@
         headers
       });
       if (!response.ok) {
-        throw new Error(`AI request failed (${response.status})`);
+        let message = `AI request failed (${response.status})`;
+        try {
+          const errorPayload = await response.json();
+          if (errorPayload?.error) {
+            message = `AI ${response.status}: ${errorPayload.error}`;
+          }
+        } catch {
+          // Ignore non-JSON errors.
+        }
+        throw new Error(message);
       }
 
       const payload = await response.json();
@@ -934,7 +943,10 @@
       if (nonce !== state.ai.nonce) {
         return;
       }
-      setAiStatus("error", "AI unavailable");
+      const label = String(error?.message || "AI unavailable").slice(0, 62);
+      setAiStatus("error", label || "AI unavailable");
+      // eslint-disable-next-line no-console
+      console.error("AI analysis failed:", error);
     } finally {
       if (nonce !== state.ai.nonce) {
         return;

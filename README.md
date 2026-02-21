@@ -134,6 +134,27 @@ Open:
 http://localhost:8080
 ```
 
+### Deploy on Vercel
+
+This repo now includes serverless functions in:
+- `api/health.js`
+- `api/ai/analyze.js`
+
+Steps:
+1. Import the GitHub repo in Vercel.
+2. In Vercel Project Settings -> Environment Variables, add:
+   - `GEMINI_API_KEY`
+   - optional: `GEMINI_MODEL`
+   - optional: `TELEGRAM_CHANNELS`
+3. Redeploy.
+4. Verify:
+   - `https://YOUR-DOMAIN/api/health`
+   - `https://YOUR-DOMAIN/api/ai/analyze?symbol=BTCUSDT&interval=1h`
+
+Security note:
+- Prefer setting `GEMINI_API_KEY` on server-side (Vercel env var).
+- Browser-entered keys are convenient for testing but less secure.
+
 ## 8. Usage Guide
 
 1. Enter symbol and press `Enter`.
