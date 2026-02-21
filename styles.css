@@ -250,6 +250,10 @@ button.active {
   backdrop-filter: blur(10px);
 }
 
+.layout-menu-panel[hidden] {
+  display: none !important;
+}
+
 .layout-menu-title {
   color: var(--muted);
   font-size: 0.72rem;

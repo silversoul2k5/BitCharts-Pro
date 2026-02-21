@@ -2033,6 +2033,7 @@
 
   function syncFullscreenButton() {
     dom.fullscreenBtn.textContent = isChartFullscreen() ? "Exit Fullscreen" : "Fullscreen";
+    closeLayoutMenu();
     requestAnimationFrame(() => {
       resizeCharts();
       resizeMultiCharts();
