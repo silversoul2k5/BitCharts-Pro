@@ -165,8 +165,8 @@ Security note:
 6. Switch `Multi View` to 2/3/4 to monitor multiple symbols.
 
 Notes:
-- AI overlays are shown in single-chart mode.
-- Multi-chart mode prioritizes compact monitoring.
+- AI overlays are shown in both single-chart and multi-chart mode.
+- In multi mode, each tile fetches AI independently for its symbol and current interval.
 
 ## 9. Troubleshooting
 
@@ -175,7 +175,7 @@ Notes:
 - Make sure you started with `node server.js` (not `python -m http.server`)
 - Open `http://localhost:8080/api/health` and check JSON response
 - Click `AI Analyze`
-- Ensure `Multi View` is `1 Chart`
+- In multi view, each tile needs symbol data loaded before AI overlays appear
 - Check `.env` has a valid `GEMINI_API_KEY` (fallback still works, but key improves output)
 
 ### Port already in use
@@ -227,7 +227,6 @@ git push -u origin main
 
 ## 12. Recommended Next Improvements
 
-- Show AI overlays in multi-chart mode per tile
 - Add per-timeframe confidence heatmap
 - Add backtesting panel for generated signals
 - Add caching/rate limiting for external news sources

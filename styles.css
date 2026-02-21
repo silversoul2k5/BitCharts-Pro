@@ -412,7 +412,7 @@ button.active {
   background: color-mix(in srgb, var(--panel-alt), transparent 25%);
   overflow: hidden;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   height: 100%;
   min-height: 0;
 }
@@ -441,6 +441,85 @@ button.active {
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+.multi-ai-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line), transparent 55%);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.multi-ai-status {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid color-mix(in srgb, var(--line), transparent 30%);
+  white-space: nowrap;
+}
+
+.multi-ai-status.neutral {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn), transparent 88%);
+}
+
+.multi-ai-status.ready {
+  color: var(--buy);
+  background: color-mix(in srgb, var(--buy), transparent 88%);
+}
+
+.multi-ai-status.error {
+  color: var(--sell);
+  background: color-mix(in srgb, var(--sell), transparent 88%);
+}
+
+.multi-ai-levels {
+  font-size: 0.67rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.multi-ai-timeframes {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line), transparent 62%);
+}
+
+.multi-ai-pill {
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--line), transparent 32%);
+  text-align: center;
+  font-size: 0.62rem;
+  font-family: "IBM Plex Mono", monospace;
+  letter-spacing: 0.03em;
+  padding: 2px 0;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel-alt), transparent 20%);
+}
+
+.multi-ai-pill.active {
+  border-color: color-mix(in srgb, var(--accent), transparent 24%);
+}
+
+.multi-ai-pill.bullish {
+  color: var(--buy);
+}
+
+.multi-ai-pill.bearish {
+  color: var(--sell);
+}
+
+.multi-ai-pill.neutral {
+  color: var(--warn);
 }
 
 .multi-chart {
@@ -638,6 +717,10 @@ button.active {
   .multi-grid[data-count="3"] .multi-card[data-slot="2"] {
     grid-column: 1 / -1;
   }
+
+  .multi-ai-timeframes {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 900px) {
@@ -677,6 +760,10 @@ button.active {
     grid-template-rows: none !important;
     grid-auto-rows: minmax(240px, 1fr);
     overflow-y: auto;
+  }
+
+  .multi-ai-timeframes {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .multi-chart {

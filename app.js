@@ -67,7 +67,9 @@
       auto: true,
       enabled: true,
       loading: false,
+      multiLoading: false,
       lastRunAt: 0,
+      lastMultiRunAt: 0,
       timer: null,
       data: null,
       overlaySeries: [],
@@ -206,6 +208,7 @@
       renderAiCards();
       applyAiForCurrentInterval();
       if (isMultiMode()) {
+        state.multiCharts.forEach((slot) => updateMultiAiSummary(slot));
         reloadMultiCharts();
       } else {
         loadMarket();
@@ -870,12 +873,16 @@
   }
 
   function scheduleAiAnalysis(delayMs = AI_REFRESH_DELAY_MS) {
-    if (!state.ai.enabled || !state.ai.auto || isMultiMode()) {
+    if (!state.ai.enabled || !state.ai.auto) {
       return;
     }
 
     clearAiTimer();
     state.ai.timer = setTimeout(() => {
+      if (isMultiMode()) {
+        runMultiAiAnalysis(false);
+        return;
+      }
       runAiAnalysis(false);
     }, delayMs);
   }
@@ -889,7 +896,12 @@
   }
 
   async function runAiAnalysis(force = false) {
-    if (isMultiMode() || !state.ai.enabled || state.ai.loading) {
+    if (isMultiMode()) {
+      await runMultiAiAnalysis(force);
+      return;
+    }
+
+    if (!state.ai.enabled || state.ai.loading) {
       return;
     }
 
@@ -903,33 +915,9 @@
     setAiStatus("neutral", "AI analyzing");
 
     try {
-      const headers = {};
-      if (state.ai.apiKey) {
-        headers[AI_KEY_HEADER] = state.ai.apiKey;
-      }
-
-      const response = await fetch(`/api/ai/analyze?symbol=${encodeURIComponent(state.symbol)}&interval=${encodeURIComponent(state.interval)}`, {
-        headers
-      });
-      if (!response.ok) {
-        let message = `AI request failed (${response.status})`;
-        try {
-          const errorPayload = await response.json();
-          if (errorPayload?.error) {
-            message = `AI ${response.status}: ${errorPayload.error}`;
-          }
-        } catch {
-          // Ignore non-JSON errors.
-        }
-        throw new Error(message);
-      }
-
-      const payload = await response.json();
+      const payload = await fetchAiPayload(state.symbol, state.interval);
       if (nonce !== state.ai.nonce) {
         return;
-      }
-      if (!payload?.ok || !payload?.analyses) {
-        throw new Error("Invalid AI payload");
       }
 
       state.ai.data = payload;
@@ -958,9 +946,342 @@
     }
   }
 
+  async function runMultiAiAnalysis(force = false) {
+    if (!isMultiMode() || !state.ai.enabled) {
+      return;
+    }
+
+    if (state.ai.multiLoading) {
+      return;
+    }
+
+    const now = Date.now();
+    if (!force && now - state.ai.lastMultiRunAt < AI_MIN_REFRESH_MS) {
+      return;
+    }
+
+    const slots = state.multiCharts.filter((slot) => slot?.chart && slot?.candles?.length);
+    if (!slots.length) {
+      return;
+    }
+
+    state.ai.multiLoading = true;
+    state.ai.lastMultiRunAt = now;
+
+    try {
+      await Promise.allSettled(
+        slots.map((slot) => runAiForMultiSlot(slot, force))
+      );
+    } finally {
+      state.ai.multiLoading = false;
+      if (state.ai.auto && isMultiMode()) {
+        scheduleAiAnalysis(AI_MIN_REFRESH_MS);
+      }
+    }
+  }
+
+  async function fetchAiPayload(symbol, interval) {
+    const headers = {};
+    if (state.ai.apiKey) {
+      headers[AI_KEY_HEADER] = state.ai.apiKey;
+    }
+
+    const response = await fetch(`/api/ai/analyze?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}`, {
+      headers
+    });
+    if (!response.ok) {
+      throw new Error(await readAiErrorMessage(response));
+    }
+
+    const payload = await response.json();
+    if (!payload?.ok || !payload?.analyses) {
+      throw new Error("Invalid AI payload");
+    }
+    return payload;
+  }
+
+  async function readAiErrorMessage(response) {
+    let message = `AI request failed (${response.status})`;
+    try {
+      const errorPayload = await response.json();
+      if (errorPayload?.error) {
+        message = `AI ${response.status}: ${errorPayload.error}`;
+      }
+    } catch {
+      // Ignore non-JSON errors.
+    }
+    return message;
+  }
+
   function setAiStatus(kind, label) {
     dom.aiStatus.className = `ai-status ${kind}`;
     dom.aiStatus.textContent = label;
+  }
+
+  async function runAiForMultiSlot(slot, force = false) {
+    if (!slot?.chart || !slot?.candles?.length || !isMultiMode()) {
+      return false;
+    }
+
+    if (slot.ai.loading) {
+      return false;
+    }
+
+    const now = Date.now();
+    if (!force && now - slot.ai.lastRunAt < AI_MIN_REFRESH_MS) {
+      return false;
+    }
+
+    slot.ai.loading = true;
+    const nonce = ++slot.ai.nonce;
+    setMultiAiStatus(slot, "neutral", "AI...");
+
+    try {
+      const payload = await fetchAiPayload(slot.symbol, state.interval);
+      if (nonce !== slot.ai.nonce || !isMultiMode()) {
+        return false;
+      }
+
+      slot.ai.data = payload;
+      slot.ai.lastRunAt = Date.now();
+      applyAiForMultiSlotCurrentInterval(slot);
+      updateMultiAiSummary(slot);
+
+      const provider = payload.model?.provider === "gemini" ? "Gemini" : "Rules";
+      setMultiAiStatus(slot, "ready", `${provider}`);
+      return true;
+    } catch (error) {
+      if (nonce !== slot.ai.nonce) {
+        return false;
+      }
+      clearMultiAiOverlays(slot);
+      updateMultiAiSummary(slot);
+      setMultiAiStatus(slot, "error", "AI err");
+      // eslint-disable-next-line no-console
+      console.error(`Multi AI failed for ${slot.symbol}:`, error);
+      return false;
+    } finally {
+      if (nonce === slot.ai.nonce) {
+        slot.ai.loading = false;
+      }
+    }
+  }
+
+  function setMultiAiStatus(slot, kind, label) {
+    if (!slot?.aiStatusNode) {
+      return;
+    }
+    slot.aiStatusNode.className = `multi-ai-status ${kind}`;
+    slot.aiStatusNode.textContent = label;
+  }
+
+  function updateMultiAiSummary(slot) {
+    if (!slot?.aiLevelsNode || !slot?.aiTimeframesNode) {
+      return;
+    }
+
+    const current = slot.ai?.data?.analyses?.[state.interval];
+    const support = Number(current?.support?.[0]?.price);
+    const resistance = Number(current?.resistance?.[0]?.price);
+    const confidence = Math.round((Number(current?.confidence) || 0) * 100);
+
+    if (current) {
+      slot.aiLevelsNode.textContent = `S ${formatPrice(support)} • R ${formatPrice(resistance)} • ${confidence}%`;
+    } else {
+      slot.aiLevelsNode.textContent = "S -- • R --";
+    }
+
+    slot.aiTimeframesNode.innerHTML = AI_TIMEFRAMES.map((timeframe) => {
+      const item = slot.ai?.data?.analyses?.[timeframe];
+      const bias = item?.bias || "neutral";
+      const active = timeframe === state.interval ? "active" : "";
+      const short = bias === "bullish" ? "B" : bias === "bearish" ? "S" : "N";
+      return `<span class="multi-ai-pill ${bias} ${active}">${timeframe} ${short}</span>`;
+    }).join("");
+  }
+
+  function applyAiForMultiSlotCurrentInterval(slot) {
+    clearMultiAiOverlays(slot);
+
+    const timeframe = slot.ai?.data?.analyses?.[state.interval];
+    if (!timeframe || !slot.candles.length) {
+      return;
+    }
+
+    const palette = getPalette();
+    const firstTime = slot.candles[0].time;
+    const lastTime = slot.candles[slot.candles.length - 1].time;
+
+    const trendLines = timeframe.trendLines || [];
+    for (const line of trendLines.slice(0, 4)) {
+      const fromTime = nearestMultiCandleTime(slot, line.fromTime);
+      const toTime = nearestMultiCandleTime(slot, line.toTime);
+      const fromPrice = Number(line.fromPrice);
+      const toPrice = Number(line.toPrice);
+      if (!Number.isFinite(fromTime) || !Number.isFinite(toTime) || !Number.isFinite(fromPrice) || !Number.isFinite(toPrice)) {
+        continue;
+      }
+
+      const trendSeries = slot.chart.addLineSeries({
+        color: line.label === "downtrend" ? colorWithAlpha(palette.down, 0.92) : colorWithAlpha(palette.up, 0.92),
+        lineWidth: 2,
+        lineStyle: LightweightCharts.LineStyle.Solid,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      trendSeries.setData([
+        { time: fromTime, value: fromPrice },
+        { time: toTime, value: toPrice }
+      ]);
+      slot.ai.overlaySeries.push(trendSeries);
+    }
+
+    const supportLevels = timeframe.support || [];
+    for (const level of supportLevels.slice(0, 3)) {
+      const price = Number(level.price);
+      if (!Number.isFinite(price)) {
+        continue;
+      }
+      const supportSeries = slot.chart.addLineSeries({
+        color: colorWithAlpha(palette.up, 0.7),
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      supportSeries.setData([
+        { time: firstTime, value: price },
+        { time: lastTime, value: price }
+      ]);
+      slot.ai.overlaySeries.push(supportSeries);
+    }
+
+    const resistanceLevels = timeframe.resistance || [];
+    for (const level of resistanceLevels.slice(0, 3)) {
+      const price = Number(level.price);
+      if (!Number.isFinite(price)) {
+        continue;
+      }
+      const resistanceSeries = slot.chart.addLineSeries({
+        color: colorWithAlpha(palette.down, 0.7),
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      resistanceSeries.setData([
+        { time: firstTime, value: price },
+        { time: lastTime, value: price }
+      ]);
+      slot.ai.overlaySeries.push(resistanceSeries);
+    }
+
+    const buyPoints = timeframe.buyPoints || [];
+    for (const point of buyPoints.slice(0, 3)) {
+      const price = Number(point.price);
+      if (!Number.isFinite(price)) {
+        continue;
+      }
+      const buyZone = slot.chart.addLineSeries({
+        color: colorWithAlpha(palette.up, 0.46),
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.SparseDotted,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      buyZone.setData([
+        { time: firstTime, value: price },
+        { time: lastTime, value: price }
+      ]);
+      slot.ai.overlaySeries.push(buyZone);
+    }
+
+    const sellPoints = timeframe.sellPoints || [];
+    for (const point of sellPoints.slice(0, 3)) {
+      const price = Number(point.price);
+      if (!Number.isFinite(price)) {
+        continue;
+      }
+      const sellZone = slot.chart.addLineSeries({
+        color: colorWithAlpha(palette.down, 0.46),
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.SparseDotted,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      sellZone.setData([
+        { time: firstTime, value: price },
+        { time: lastTime, value: price }
+      ]);
+      slot.ai.overlaySeries.push(sellZone);
+    }
+
+    const markers = [];
+    for (const point of buyPoints.slice(0, 6)) {
+      const markerTime = nearestMultiCandleTime(slot, point.time);
+      const confidence = Math.round((Number(point.confidence) || 0) * 100);
+      if (!Number.isFinite(markerTime)) {
+        continue;
+      }
+      markers.push({
+        time: markerTime,
+        position: "belowBar",
+        color: palette.up,
+        shape: "arrowUp",
+        text: `B ${confidence}%`
+      });
+    }
+
+    for (const point of sellPoints.slice(0, 6)) {
+      const markerTime = nearestMultiCandleTime(slot, point.time);
+      const confidence = Math.round((Number(point.confidence) || 0) * 100);
+      if (!Number.isFinite(markerTime)) {
+        continue;
+      }
+      markers.push({
+        time: markerTime,
+        position: "aboveBar",
+        color: palette.down,
+        shape: "arrowDown",
+        text: `S ${confidence}%`
+      });
+    }
+
+    applyAiMarkersToSeries(slot.series, slot.ai, markers);
+  }
+
+  function clearMultiAiOverlays(slot) {
+    if (!slot?.chart || !slot?.ai) {
+      return;
+    }
+
+    for (const overlay of slot.ai.overlaySeries) {
+      try {
+        slot.chart.removeSeries(overlay);
+      } catch {
+        // Ignore if series already removed.
+      }
+    }
+    slot.ai.overlaySeries = [];
+    applyAiMarkersToSeries(slot.series, slot.ai, []);
+  }
+
+  function nearestMultiCandleTime(slot, rawTime) {
+    const target = normalizeTime(rawTime);
+    if (!Number.isFinite(target) || !slot?.candles?.length) {
+      return NaN;
+    }
+
+    let nearest = slot.candles[0].time;
+    let nearestDiff = Math.abs(nearest - target);
+    for (const candle of slot.candles) {
+      const diff = Math.abs(candle.time - target);
+      if (diff < nearestDiff) {
+        nearest = candle.time;
+        nearestDiff = diff;
+      }
+    }
+    return nearest;
   }
 
   function renderAiCards() {
@@ -1115,26 +1436,30 @@
       }
     }
     state.ai.overlaySeries = [];
-    applyAiMarkers([]);
+    applyAiMarkersToSeries(series.candles, state.ai, []);
   }
 
   function applyAiMarkers(markers) {
-    if (!series.candles) {
+    applyAiMarkersToSeries(series.candles, state.ai, markers);
+  }
+
+  function applyAiMarkersToSeries(targetSeries, markerStore, markers) {
+    if (!targetSeries || !markerStore) {
       return;
     }
 
-    if (typeof series.candles.setMarkers === "function") {
-      series.candles.setMarkers(markers);
+    if (typeof targetSeries.setMarkers === "function") {
+      targetSeries.setMarkers(markers);
       return;
     }
 
     if (typeof LightweightCharts.createSeriesMarkers === "function") {
-      if (!state.ai.markerApi) {
-        state.ai.markerApi = LightweightCharts.createSeriesMarkers(series.candles, markers);
+      if (!markerStore.markerApi) {
+        markerStore.markerApi = LightweightCharts.createSeriesMarkers(targetSeries, markers);
         return;
       }
-      if (typeof state.ai.markerApi.setMarkers === "function") {
-        state.ai.markerApi.setMarkers(markers);
+      if (typeof markerStore.markerApi.setMarkers === "function") {
+        markerStore.markerApi.setMarkers(markers);
       }
     }
   }
@@ -1175,7 +1500,7 @@
     dom.layout.classList.toggle("multi-view", multi);
     dom.chartZone.classList.toggle("multi-view", multi);
     dom.multiGrid.hidden = !multi;
-    dom.aiRefreshBtn.disabled = multi;
+    dom.aiRefreshBtn.disabled = false;
 
     if (multi) {
       closeAllSockets();
@@ -1189,8 +1514,12 @@
       clearAiTimer();
       clearAiOverlays();
       buildMultiCharts();
+      if (state.ai.auto) {
+        scheduleAiAnalysis(450);
+      }
       setStatus("neutral", `${state.multiCount} Charts`);
     } else {
+      state.ai.multiLoading = false;
       dom.chartZone.style.removeProperty("grid-template-rows");
       destroyMultiCharts();
       updatePaneVisibility();
@@ -1220,6 +1549,11 @@
               <input class="multi-symbol" type="text" value="${symbol}" spellcheck="false" autocomplete="off" />
               <span class="multi-status">Loading</span>
             </div>
+            <div class="multi-ai-head">
+              <span class="multi-ai-status neutral">AI idle</span>
+              <span class="multi-ai-levels">S -- • R --</span>
+            </div>
+            <div class="multi-ai-timeframes"></div>
             <div class="multi-chart"></div>
           </article>
         `
@@ -1231,6 +1565,9 @@
     state.multiCharts = cards.map((card, index) => {
       const symbolInput = card.querySelector(".multi-symbol");
       const statusNode = card.querySelector(".multi-status");
+      const aiStatusNode = card.querySelector(".multi-ai-status");
+      const aiLevelsNode = card.querySelector(".multi-ai-levels");
+      const aiTimeframesNode = card.querySelector(".multi-ai-timeframes");
       const chartNode = card.querySelector(".multi-chart");
 
       const chart = LightweightCharts.createChart(chartNode, buildPriceChartOptions(palette));
@@ -1246,10 +1583,24 @@
         chartNode,
         symbolInput,
         statusNode,
+        aiStatusNode,
+        aiLevelsNode,
+        aiTimeframesNode,
         ws: null,
         reconnectTimer: null,
-        nonce: 0
+        nonce: 0,
+        ai: {
+          loading: false,
+          lastRunAt: 0,
+          nonce: 0,
+          data: null,
+          overlaySeries: [],
+          markerApi: null
+        }
       };
+
+      setMultiAiStatus(slot, "neutral", "AI idle");
+      updateMultiAiSummary(slot);
 
       symbolInput.addEventListener("keydown", (event) => {
         if (event.key !== "Enter") {
@@ -1337,6 +1688,11 @@
 
     const nonce = ++slot.nonce;
     closeMultiSlotSocket(slot);
+    slot.ai.nonce += 1;
+    slot.ai.data = null;
+    clearMultiAiOverlays(slot);
+    updateMultiAiSummary(slot);
+    setMultiAiStatus(slot, "neutral", "AI idle");
     slot.statusNode.textContent = "Loading";
 
     try {
@@ -1351,12 +1707,14 @@
 
       const last = slot.candles[slot.candles.length - 1];
       slot.statusNode.textContent = last ? `${formatPrice(last.close)} • ${state.interval}` : `No data • ${state.interval}`;
+      runAiForMultiSlot(slot, true);
       openMultiSlotSocket(slot, nonce);
     } catch {
       if (nonce !== slot.nonce) {
         return;
       }
       slot.statusNode.textContent = "Load failed";
+      setMultiAiStatus(slot, "error", "AI wait");
     }
   }
 
@@ -1395,6 +1753,9 @@
 
         upsertMultiSlotCandle(slot, candle);
         slot.series.update(candle);
+        if (kline.x && state.ai.auto) {
+          scheduleAiAnalysis(220);
+        }
       } catch {
         // Ignore malformed payloads.
       }
@@ -1457,6 +1818,7 @@
   function destroyMultiCharts() {
     state.multiCharts.forEach((slot) => {
       closeMultiSlotSocket(slot);
+      clearMultiAiOverlays(slot);
       if (slot.chart) {
         slot.chart.remove();
       }
@@ -1492,6 +1854,10 @@
     state.multiCharts.forEach((slot) => {
       slot.chart.applyOptions(buildPriceChartOptions(palette));
       slot.series.applyOptions(candleSeriesOptions(palette));
+      if (slot.ai?.data) {
+        applyAiForMultiSlotCurrentInterval(slot);
+        updateMultiAiSummary(slot);
+      }
     });
   }
 
@@ -2080,9 +2446,7 @@
     if (key) {
       localStorage.setItem(AI_KEY_STORAGE_KEY, key);
       setAiStatus("neutral", "API key saved");
-      if (!isMultiMode()) {
-        scheduleAiAnalysis(120);
-      }
+      scheduleAiAnalysis(120);
       return;
     }
 
