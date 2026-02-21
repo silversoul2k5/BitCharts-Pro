@@ -7,6 +7,8 @@
   const RECONNECT_DELAY_MS = 1500;
   const AI_REFRESH_DELAY_MS = 1400;
   const AI_MIN_REFRESH_MS = 45000;
+  const AI_KEY_STORAGE_KEY = "bitcharts-gemini-key";
+  const AI_KEY_HEADER = "X-Gemini-Api-Key";
   const AI_TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"];
   const MULTI_DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"];
 
@@ -70,7 +72,8 @@
       data: null,
       overlaySeries: [],
       markerApi: null,
-      nonce: 0
+      nonce: 0,
+      apiKey: sanitizeApiKey(localStorage.getItem(AI_KEY_STORAGE_KEY))
     }
   };
 
@@ -87,6 +90,9 @@
     aiRefreshBtn: document.getElementById("ai-refresh-btn"),
     fullscreenBtn: document.getElementById("fullscreen-btn"),
     themeBtn: document.getElementById("theme-btn"),
+    geminiKeyInput: document.getElementById("gemini-key-input"),
+    saveKeyBtn: document.getElementById("save-key-btn"),
+    clearKeyBtn: document.getElementById("clear-key-btn"),
     marketTitle: document.getElementById("market-title"),
     ohlcRow: document.getElementById("ohlc-row"),
     statusPill: document.getElementById("status-pill"),
@@ -159,6 +165,7 @@
     dom.showMacd.checked = state.indicators.macd;
     dom.aiAuto.checked = state.ai.auto;
     dom.multiCount.value = String(state.multiCount);
+    dom.geminiKeyInput.value = state.ai.apiKey;
     setAiStatus("neutral", "AI idle");
     renderAiCards();
 
@@ -236,6 +243,22 @@
       } else {
         clearAiTimer();
       }
+    });
+
+    dom.saveKeyBtn.addEventListener("click", () => {
+      saveAiApiKey(dom.geminiKeyInput.value);
+    });
+
+    dom.clearKeyBtn.addEventListener("click", () => {
+      saveAiApiKey("");
+    });
+
+    dom.geminiKeyInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") {
+        return;
+      }
+      event.preventDefault();
+      saveAiApiKey(dom.geminiKeyInput.value);
     });
 
     dom.multiCount.addEventListener("change", () => {
@@ -880,7 +903,14 @@
     setAiStatus("neutral", "AI analyzing");
 
     try {
-      const response = await fetch(`/api/ai/analyze?symbol=${encodeURIComponent(state.symbol)}&interval=${encodeURIComponent(state.interval)}`);
+      const headers = {};
+      if (state.ai.apiKey) {
+        headers[AI_KEY_HEADER] = state.ai.apiKey;
+      }
+
+      const response = await fetch(`/api/ai/analyze?symbol=${encodeURIComponent(state.symbol)}&interval=${encodeURIComponent(state.interval)}`, {
+        headers
+      });
       if (!response.ok) {
         throw new Error(`AI request failed (${response.status})`);
       }
@@ -1137,6 +1167,7 @@
 
     if (multi) {
       closeAllSockets();
+      dom.chartZone.style.gridTemplateRows = "auto minmax(0, 1fr)";
       dom.indicatorSwitches.style.display = "none";
       dom.aiStatus.parentElement.style.display = "none";
       dom.aiTimeframes.style.display = "none";
@@ -1148,6 +1179,7 @@
       buildMultiCharts();
       setStatus("neutral", `${state.multiCount} Charts`);
     } else {
+      dom.chartZone.style.removeProperty("grid-template-rows");
       destroyMultiCharts();
       updatePaneVisibility();
       loadMarket();
@@ -1457,6 +1489,10 @@
 
   function syncFullscreenButton() {
     dom.fullscreenBtn.textContent = isChartFullscreen() ? "Exit Fullscreen" : "Fullscreen";
+    requestAnimationFrame(() => {
+      resizeCharts();
+      resizeMultiCharts();
+    });
   }
 
   function toggleChartFullscreen() {
@@ -2010,6 +2046,36 @@
       return null;
     }
     return cleaned;
+  }
+
+  function sanitizeApiKey(raw) {
+    if (!raw) {
+      return "";
+    }
+
+    const condensed = String(raw).replace(/\s+/g, "").trim();
+    if (condensed.length < 12 || condensed.length > 240) {
+      return "";
+    }
+    return condensed;
+  }
+
+  function saveAiApiKey(rawKey) {
+    const key = sanitizeApiKey(rawKey);
+    state.ai.apiKey = key;
+    dom.geminiKeyInput.value = key;
+
+    if (key) {
+      localStorage.setItem(AI_KEY_STORAGE_KEY, key);
+      setAiStatus("neutral", "API key saved");
+      if (!isMultiMode()) {
+        scheduleAiAnalysis(120);
+      }
+      return;
+    }
+
+    localStorage.removeItem(AI_KEY_STORAGE_KEY);
+    setAiStatus("neutral", "API key cleared");
   }
 
   async function fetchJson(url) {

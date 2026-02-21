@@ -26,7 +26,7 @@ const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
     if (requestUrl.pathname === '/api/ai/analyze' && req.method === 'GET') {
-      await handleAiAnalyze(requestUrl, res);
+      await handleAiAnalyze(req, requestUrl, res);
       return;
     }
 
@@ -55,10 +55,11 @@ server.listen(PORT, () => {
   console.log(`BitCharts Pro server listening on http://localhost:${PORT}`);
 });
 
-async function handleAiAnalyze(requestUrl, res) {
+async function handleAiAnalyze(req, requestUrl, res) {
   const symbol = sanitizeSymbol(requestUrl.searchParams.get('symbol')) || 'BTCUSDT';
   const requestedInterval = normalizeInterval(requestUrl.searchParams.get('interval')) || '1m';
   const intervals = DEFAULT_INTERVALS;
+  const requestApiKey = resolveGeminiApiKey(req.headers['x-gemini-api-key']);
 
   try {
     const [candlesByInterval, newsBundle] = await Promise.all([
@@ -67,7 +68,7 @@ async function handleAiAnalyze(requestUrl, res) {
     ]);
 
     const deterministic = buildDeterministicAnalyses(symbol, candlesByInterval, intervals, newsBundle);
-    const aiResult = await callGeminiForAnalysis(symbol, intervals, deterministic, newsBundle);
+    const aiResult = await callGeminiForAnalysis(symbol, intervals, deterministic, newsBundle, requestApiKey);
     const merged = mergeAnalysis(deterministic, aiResult?.analysis || null);
 
     sendJson(res, 200, {
@@ -313,8 +314,8 @@ function mergeAnalysis(base, aiAnalysis) {
   return merged;
 }
 
-async function callGeminiForAnalysis(symbol, intervals, deterministic, newsBundle) {
-  const apiKey = process.env.GEMINI_API_KEY;
+async function callGeminiForAnalysis(symbol, intervals, deterministic, newsBundle, requestApiKey) {
+  const apiKey = resolveGeminiApiKey(requestApiKey) || resolveGeminiApiKey(process.env.GEMINI_API_KEY);
   if (!apiKey) {
     return null;
   }
@@ -983,6 +984,19 @@ function normalizeInterval(raw) {
   }
   const lowered = String(raw).toLowerCase();
   return DEFAULT_INTERVALS.includes(lowered) ? lowered : null;
+}
+
+function resolveGeminiApiKey(raw) {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  const normalized = value.replace(/\s+/g, '').trim();
+  if (normalized.length < 12 || normalized.length > 240) {
+    return '';
+  }
+  return normalized;
 }
 
 function sanitizeSymbol(raw) {

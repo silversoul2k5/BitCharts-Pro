@@ -85,6 +85,9 @@ Returns:
 - `news` summary + sentiment score
 - provider mode (`gemini` or `rules` fallback)
 
+Optional request header:
+- `X-Gemini-Api-Key`: use a UI-supplied key for this browser session (overrides `.env` key for that request)
+
 ## 6. Environment Variables
 
 Copy `.env.example` to `.env`:
@@ -135,9 +138,10 @@ http://localhost:8080
 
 1. Enter symbol and press `Enter`.
 2. Choose interval (1m/5m/15m/1h/4h/1d).
-3. Click `AI Analyze`.
-4. Keep `Auto refresh` enabled for periodic updates.
-5. Switch `Multi View` to 2/3/4 to monitor multiple symbols.
+3. Add Gemini key in the `Gemini API Key` field and click `Save` (or keep using `.env` key).
+4. Click `AI Analyze`.
+5. Keep `Auto refresh` enabled for periodic updates.
+6. Switch `Multi View` to 2/3/4 to monitor multiple symbols.
 
 Notes:
 - AI overlays are shown in single-chart mode.

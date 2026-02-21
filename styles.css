@@ -90,7 +90,13 @@ body {
 
 .controls {
   display: grid;
-  grid-template-columns: repeat(5, minmax(160px, 1fr));
+  grid-template-columns:
+    minmax(170px, 1.05fr)
+    minmax(280px, 1.45fr)
+    minmax(150px, 0.9fr)
+    minmax(150px, 0.9fr)
+    minmax(280px, 1.45fr)
+    minmax(240px, 1.2fr);
   gap: 10px;
 }
 
@@ -137,6 +143,20 @@ button:focus {
 
 .actions {
   grid-template-columns: repeat(4, 1fr);
+}
+
+.api-key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+}
+
+.api-key-row input {
+  min-width: 0;
+}
+
+.api-key-row button {
+  white-space: nowrap;
 }
 
 button {
@@ -368,17 +388,17 @@ button.active {
 }
 
 .multi-grid[data-count="2"] {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: minmax(0, 1fr);
-}
-
-.multi-grid[data-count="3"] {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: repeat(2, minmax(0, 1fr));
 }
 
+.multi-grid[data-count="3"] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .multi-grid[data-count="3"] .multi-card[data-slot="2"] {
-  grid-column: 1 / -1;
+  grid-column: auto;
 }
 
 .multi-grid[data-count="4"] {
@@ -432,12 +452,12 @@ button.active {
 .multi-grid[data-count="2"] .multi-card,
 .multi-grid[data-count="3"] .multi-card,
 .multi-grid[data-count="4"] .multi-card {
-  min-height: 220px;
+  min-height: 0;
 }
 
 .layout.multi-view {
   grid-template-columns: 1fr;
-  height: min(920px, calc(100dvh - 150px));
+  height: calc(100dvh - 146px);
   min-height: 520px;
 }
 
@@ -447,6 +467,7 @@ button.active {
 
 .chart-zone.multi-view {
   grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .chart-zone.multi-view .indicator-switches,
@@ -460,6 +481,10 @@ button.active {
 
 .chart-zone:not(.multi-view) .multi-grid {
   display: none;
+}
+
+#multi-grid[hidden] {
+  display: none !important;
 }
 
 .chart-zone:fullscreen {
@@ -570,7 +595,11 @@ button.active {
 
 @media (max-width: 1180px) {
   .controls {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .layout {
@@ -580,8 +609,8 @@ button.active {
   }
 
   .layout.multi-view {
-    height: auto;
-    min-height: 0;
+    height: calc(100dvh - 142px);
+    min-height: 500px;
   }
 
   .market-zone {
@@ -599,6 +628,15 @@ button.active {
 
   .ai-timeframes {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .multi-grid[data-count="3"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
+
+  .multi-grid[data-count="3"] .multi-card[data-slot="2"] {
+    grid-column: 1 / -1;
   }
 }
 
@@ -625,8 +663,8 @@ button.active {
   }
 
   .layout.multi-view {
-    height: auto;
-    min-height: 0;
+    height: calc(100dvh - 118px);
+    min-height: 430px;
   }
 
   .chart-zone {
@@ -637,7 +675,8 @@ button.active {
   .multi-grid {
     grid-template-columns: 1fr !important;
     grid-template-rows: none !important;
-    grid-auto-rows: minmax(220px, 1fr);
+    grid-auto-rows: minmax(240px, 1fr);
+    overflow-y: auto;
   }
 
   .multi-chart {
