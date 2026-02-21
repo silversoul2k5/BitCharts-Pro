@@ -2,14 +2,14 @@
   "use strict";
 
   const REST_BASE = "https://data-api.binance.vision/api/v3";
-  const WS_BASE = "wss://data-stream.binance.vision/ws";
+  const WS_BASE = "wss://stream.binance.com:9443/ws";
   const MAX_CANDLES = 600;
   const RECONNECT_DELAY_MS = 1500;
   const AI_REFRESH_DELAY_MS = 1400;
   const AI_MIN_REFRESH_MS = 45000;
   const AI_KEY_STORAGE_KEY = "bitcharts-gemini-key";
   const AI_KEY_HEADER = "X-Gemini-Api-Key";
-  const AI_TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"];
+  const AI_TIMEFRAMES = ["1d", "4h", "1h", "15m"];
   const MULTI_DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"];
   const MULTI_LAYOUT_STORAGE_KEY = "bitcharts-multi-layouts";
   const MULTI_LAYOUT_PRESETS = {
@@ -75,6 +75,7 @@
     },
     sockets: {},
     reconnectTimers: {},
+    livePollTimer: null,
     streamNonce: 0,
     multiCharts: [],
     ai: {
@@ -726,6 +727,7 @@
       dom.marketTitle.textContent = `${state.symbol} • ${state.interval} • ${lastPriceText} (${pctText})`;
 
       openSymbolStreams(nonce);
+      startLivePolling();
       setStatus("connected", "Live");
       scheduleAiAnalysis(350);
     } catch (error) {
@@ -2166,6 +2168,8 @@
   }
 
   function closeAllSockets() {
+    stopLivePolling();
+
     Object.values(state.reconnectTimers).forEach((timer) => {
       if (timer) {
         clearTimeout(timer);
@@ -2185,6 +2189,53 @@
 
     state.sockets = {};
     updateSocketBadge();
+  }
+
+  function startLivePolling() {
+    stopLivePolling();
+    state.livePollTimer = setInterval(() => {
+      pollLatestSingleCandle();
+    }, 3500);
+  }
+
+  function stopLivePolling() {
+    if (!state.livePollTimer) {
+      return;
+    }
+    clearInterval(state.livePollTimer);
+    state.livePollTimer = null;
+  }
+
+  async function pollLatestSingleCandle() {
+    if (isMultiMode()) {
+      return;
+    }
+
+    const symbol = state.symbol;
+    const interval = state.interval;
+
+    if (!symbol || !interval) {
+      return;
+    }
+
+    try {
+      const raw = await fetchJson(`${REST_BASE}/klines?symbol=${symbol}&interval=${interval}&limit=3`);
+      if (isMultiMode() || symbol !== state.symbol || interval !== state.interval) {
+        return;
+      }
+
+      const latest = (raw || []).map(toCandle).filter(Boolean).slice(-2);
+      if (!latest.length) {
+        return;
+      }
+
+      latest.forEach((candle) => upsertCandle(candle));
+      renderPriceSeries();
+      renderIndicators();
+      updateOhlcFromLast();
+    } catch {
+      // Ignore polling failures; websocket remains primary source.
+    }
   }
 
   function updateSocketBadge() {

@@ -168,6 +168,7 @@ Security note:
 Notes:
 - AI overlays are shown in both single-chart and multi-chart mode.
 - In multi mode, each tile fetches AI independently for its symbol and current interval.
+- AI summary cards focus on `1d`, `4h`, `1h`, `15m` support/resistance.
 
 ## 9. Troubleshooting
 
