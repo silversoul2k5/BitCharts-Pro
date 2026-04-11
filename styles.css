@@ -648,6 +648,21 @@ button.active {
   height: 100%;
 }
 
+.multi-rsi-chart,
+.multi-macd-chart {
+  width: 100%;
+  height: 100%;
+}
+
+.multi-pane {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.multi-pane-sub {
+  border-top: 1px solid color-mix(in srgb, var(--line), transparent 55%);
+}
+
 .multi-grid[data-layout="two-cols"] .multi-card,
 .multi-grid[data-layout="two-rows"] .multi-card,
 .multi-grid[data-layout="three-cols"] .multi-card,

@@ -239,8 +239,18 @@
 
     dom.chartType.addEventListener("change", () => {
       state.chartType = dom.chartType.value;
+      if (isMultiMode()) {
+        renderMultiPriceSeriesAll();
+        state.multiCharts.forEach((slot) => {
+          if (slot.ai?.data) {
+            applyAiForMultiSlotCurrentInterval(slot);
+          }
+        });
+        return;
+      }
       renderPriceSeries();
       updateOhlcFromLast();
+      applyAiForCurrentInterval();
     });
 
     dom.reloadBtn.addEventListener("click", () => {
@@ -342,32 +352,58 @@
 
     dom.showVolume.addEventListener("change", () => {
       state.indicators.volume = dom.showVolume.checked;
+      if (isMultiMode()) {
+        renderMultiIndicatorsAll();
+        return;
+      }
       renderIndicators();
     });
 
     dom.showSma.addEventListener("change", () => {
       state.indicators.sma = dom.showSma.checked;
+      if (isMultiMode()) {
+        renderMultiIndicatorsAll();
+        return;
+      }
       renderIndicators();
     });
 
     dom.showEma.addEventListener("change", () => {
       state.indicators.ema = dom.showEma.checked;
+      if (isMultiMode()) {
+        renderMultiIndicatorsAll();
+        return;
+      }
       renderIndicators();
     });
 
     dom.showBb.addEventListener("change", () => {
       state.indicators.bb = dom.showBb.checked;
+      if (isMultiMode()) {
+        renderMultiIndicatorsAll();
+        return;
+      }
       renderIndicators();
     });
 
     dom.showRsi.addEventListener("change", () => {
       state.indicators.rsi = dom.showRsi.checked;
+      if (isMultiMode()) {
+        updateMultiPaneVisibility();
+        renderMultiIndicatorsAll();
+        return;
+      }
       updatePaneVisibility();
       renderIndicators();
     });
 
     dom.showMacd.addEventListener("change", () => {
       state.indicators.macd = dom.showMacd.checked;
+      if (isMultiMode()) {
+        updateMultiPaneVisibility();
+        renderMultiIndicatorsAll();
+        return;
+      }
       updatePaneVisibility();
       renderIndicators();
     });
@@ -554,6 +590,7 @@
     resizeObserver.observe(dom.macdPane);
     window.addEventListener("resize", resizeCharts);
     window.addEventListener("resize", updatePaneVisibility);
+    window.addEventListener("resize", updateMultiPaneVisibility);
     window.addEventListener("resize", resizeMultiCharts);
     resizeCharts();
   }
@@ -670,6 +707,57 @@
     requestAnimationFrame(resizeCharts);
   }
 
+  function updateMultiPaneVisibility() {
+    if (!isMultiMode()) {
+      return;
+    }
+
+    const isPhone = window.matchMedia("(max-width: 900px)").matches;
+    const isCompact = window.matchMedia("(max-width: 1180px)").matches;
+    const count = state.multiCount;
+
+    const mainMin = isPhone
+      ? count >= 3
+        ? 128
+        : 160
+      : isCompact
+        ? count >= 3
+          ? 146
+          : 176
+        : count === 4
+          ? 150
+          : count === 3
+            ? 170
+            : 210;
+
+    const rsiHeight = isPhone ? 58 : isCompact ? 64 : 78;
+    const macdHeight = isPhone ? 66 : isCompact ? 76 : 92;
+
+    state.multiCharts.forEach((slot) => {
+      if (!slot?.card) {
+        return;
+      }
+
+      if (slot.rsiPane) {
+        slot.rsiPane.style.display = state.indicators.rsi ? "block" : "none";
+      }
+      if (slot.macdPane) {
+        slot.macdPane.style.display = state.indicators.macd ? "block" : "none";
+      }
+
+      const rows = ["auto", "auto", "auto", `minmax(${mainMin}px, 1fr)`];
+      if (state.indicators.rsi) {
+        rows.push(`${rsiHeight}px`);
+      }
+      if (state.indicators.macd) {
+        rows.push(`${macdHeight}px`);
+      }
+      slot.card.style.gridTemplateRows = rows.join(" ");
+    });
+
+    requestAnimationFrame(resizeMultiCharts);
+  }
+
   async function loadMarket() {
     const symbol = sanitizeSymbol(dom.symbolInput.value) || state.symbol;
     state.symbol = symbol;
@@ -752,20 +840,99 @@
     applyAiForCurrentInterval();
   }
 
-  function renderPriceSeries() {
-    const closeData = state.candles.map((candle) => ({ time: candle.time, value: candle.close }));
+  function buildCloseData(candles) {
+    return candles.map((candle) => ({ time: candle.time, value: candle.close }));
+  }
 
-    series.candles.setData(state.chartType === "candles" ? state.candles : []);
-    series.line.setData(state.chartType === "line" ? closeData : []);
-    series.area.setData(state.chartType === "area" ? closeData : []);
+  function getMainSeriesTargets(target) {
+    if (!target) {
+      return null;
+    }
+
+    return {
+      candles: target.candleSeries || target.candles || null,
+      line: target.lineSeries || target.line || null,
+      area: target.areaSeries || target.area || null,
+      baseline: target.baselineSeries || target.baseline || null
+    };
+  }
+
+  function getSingleVisibleMainSeries() {
+    const targets = getMainSeriesTargets(series);
+    if (!targets) {
+      return null;
+    }
+
+    if (state.chartType === "line") {
+      return targets.line;
+    }
+    if (state.chartType === "area") {
+      return targets.area;
+    }
+    if (state.chartType === "baseline") {
+      return targets.baseline;
+    }
+    return targets.candles;
+  }
+
+  function getMultiVisibleMainSeries(slot) {
+    const targets = getMainSeriesTargets(slot);
+    if (!targets) {
+      return null;
+    }
+
+    if (state.chartType === "line") {
+      return targets.line;
+    }
+    if (state.chartType === "area") {
+      return targets.area;
+    }
+    if (state.chartType === "baseline") {
+      return targets.baseline;
+    }
+    return targets.candles;
+  }
+
+  function setMainSeriesData(target, candles) {
+    const targets = getMainSeriesTargets(target);
+    if (!targets) {
+      return;
+    }
+
+    const closeData = buildCloseData(candles);
+
+    targets.candles?.setData(state.chartType === "candles" ? candles : []);
+    targets.line?.setData(state.chartType === "line" ? closeData : []);
+    targets.area?.setData(state.chartType === "area" ? closeData : []);
 
     if (state.chartType === "baseline") {
-      const base = state.candles[0]?.close || 0;
-      series.baseline.applyOptions({ baseValue: { type: "price", price: base } });
-      series.baseline.setData(closeData);
+      const base = candles[0]?.close || 0;
+      targets.baseline?.applyOptions({ baseValue: { type: "price", price: base } });
+      targets.baseline?.setData(closeData);
     } else {
-      series.baseline.setData([]);
+      targets.baseline?.setData([]);
     }
+  }
+
+  function renderPriceSeries() {
+    setMainSeriesData(series, state.candles);
+  }
+
+  function renderMultiPriceSeriesForSlot(slot) {
+    if (!slot) {
+      return;
+    }
+    setMainSeriesData(slot, slot.candles || []);
+  }
+
+  function renderMultiPriceSeriesAll() {
+    if (!isMultiMode()) {
+      return;
+    }
+
+    state.multiCharts.forEach((slot) => {
+      renderMultiPriceSeriesForSlot(slot);
+    });
   }
 
   function resetPriceScaleToSymbolRange() {
@@ -879,6 +1046,127 @@
       series.macdSignal.setData([]);
       series.macdHist.setData([]);
     }
+  }
+
+  function renderMultiIndicatorsAll() {
+    if (!isMultiMode()) {
+      return;
+    }
+
+    state.multiCharts.forEach((slot) => {
+      renderMultiIndicatorsForSlot(slot);
+    });
+
+    requestAnimationFrame(resizeMultiCharts);
+  }
+
+  function renderMultiIndicatorsForSlot(slot) {
+    if (!slot || !slot.candleSeries) {
+      return;
+    }
+
+    const palette = getPalette();
+    const candles = slot.candles || [];
+
+    if (!candles.length) {
+      slot.volumeSeries.setData([]);
+      slot.smaSeries.setData([]);
+      slot.emaSeries.setData([]);
+      slot.bbUpperSeries.setData([]);
+      slot.bbLowerSeries.setData([]);
+      slot.bbMiddleSeries.setData([]);
+      slot.rsiSeries.setData([]);
+      slot.rsiUpperSeries.setData([]);
+      slot.rsiLowerSeries.setData([]);
+      slot.macdLineSeries.setData([]);
+      slot.macdSignalSeries.setData([]);
+      slot.macdHistSeries.setData([]);
+      return;
+    }
+
+    if (state.indicators.volume) {
+      slot.volumeSeries.setData(
+        candles.map((candle) => ({
+          time: candle.time,
+          value: candle.volume,
+          color: candle.close >= candle.open ? colorWithAlpha(palette.up, 0.82) : colorWithAlpha(palette.down, 0.82)
+        }))
+      );
+    } else {
+      slot.volumeSeries.setData([]);
+    }
+
+    if (state.indicators.sma) {
+      slot.smaSeries.setData(calcSma(candles, 20));
+    } else {
+      slot.smaSeries.setData([]);
+    }
+
+    if (state.indicators.ema) {
+      slot.emaSeries.setData(calcEma(candles, 50));
+    } else {
+      slot.emaSeries.setData([]);
+    }
+
+    if (state.indicators.bb) {
+      const bands = calcBollinger(candles, 20, 2);
+      slot.bbUpperSeries.setData(bands.upper);
+      slot.bbLowerSeries.setData(bands.lower);
+      slot.bbMiddleSeries.setData(bands.middle);
+    } else {
+      slot.bbUpperSeries.setData([]);
+      slot.bbLowerSeries.setData([]);
+      slot.bbMiddleSeries.setData([]);
+    }
+
+    if (state.indicators.rsi) {
+      const rsi = calcRsi(candles, 14);
+      slot.rsiSeries.setData(rsi);
+      slot.rsiUpperSeries.setData(candles.map((candle) => ({ time: candle.time, value: 70 })));
+      slot.rsiLowerSeries.setData(candles.map((candle) => ({ time: candle.time, value: 30 })));
+      applyMultiRsiFixedScale(slot);
+    } else {
+      slot.rsiSeries.setData([]);
+      slot.rsiUpperSeries.setData([]);
+      slot.rsiLowerSeries.setData([]);
+    }
+
+    if (state.indicators.macd) {
+      const macd = calcMacd(candles, 12, 26, 9);
+      slot.macdLineSeries.setData(macd.macd);
+      slot.macdSignalSeries.setData(macd.signal);
+      slot.macdHistSeries.setData(
+        macd.hist.map((point) => ({
+          time: point.time,
+          value: point.value,
+          color: point.value >= 0 ? palette.pos : palette.neg
+        }))
+      );
+    } else {
+      slot.macdLineSeries.setData([]);
+      slot.macdSignalSeries.setData([]);
+      slot.macdHistSeries.setData([]);
+    }
+  }
+
+  function applyMultiRsiFixedScale(slot) {
+    if (!slot?.rsiChart || !slot?.rsiSeries || !slot?.rsiUpperSeries || !slot?.rsiLowerSeries) {
+      return;
+    }
+
+    const fixedRange = () => ({
+      priceRange: { minValue: 0, maxValue: 100 }
+    });
+
+    slot.rsiSeries.applyOptions({ autoscaleInfoProvider: fixedRange });
+    slot.rsiUpperSeries.applyOptions({ autoscaleInfoProvider: fixedRange });
+    slot.rsiLowerSeries.applyOptions({ autoscaleInfoProvider: fixedRange });
+
+    slot.rsiChart.priceScale("right").applyOptions({
+      autoScale: true,
+      mode: LightweightCharts.PriceScaleMode.Normal,
+      scaleMargins: { top: 0.14, bottom: 0.14 }
+    });
   }
 
   function applyThemeToCharts() {
@@ -1313,7 +1601,7 @@
       });
     }
 
-    applyAiMarkersToSeries(slot.series, slot.ai, markers);
+    applyAiMarkersToSeries(getMultiVisibleMainSeries(slot), slot.ai, markers);
   }
 
   function clearMultiAiOverlays(slot) {
@@ -1329,7 +1617,7 @@
       }
     }
     slot.ai.overlaySeries = [];
-    applyAiMarkersToSeries(slot.series, slot.ai, []);
+    applyAiMarkersToSeries(getMultiVisibleMainSeries(slot), slot.ai, []);
   }
 
   function nearestMultiCandleTime(slot, rawTime) {
@@ -1502,17 +1790,29 @@
       }
     }
     state.ai.overlaySeries = [];
-    applyAiMarkersToSeries(series.candles, state.ai, []);
+    applyAiMarkersToSeries(getSingleVisibleMainSeries(), state.ai, []);
   }
 
   function applyAiMarkers(markers) {
-    applyAiMarkersToSeries(series.candles, state.ai, markers);
+    applyAiMarkersToSeries(getSingleVisibleMainSeries(), state.ai, markers);
   }
 
   function applyAiMarkersToSeries(targetSeries, markerStore, markers) {
     if (!targetSeries || !markerStore) {
       return;
     }
+
+    if (markerStore.markerTarget && markerStore.markerTarget !== targetSeries) {
+      if (typeof markerStore.markerTarget.setMarkers === "function") {
+        markerStore.markerTarget.setMarkers([]);
+      }
+      if (markerStore.markerApi && typeof markerStore.markerApi.setMarkers === "function") {
+        markerStore.markerApi.setMarkers([]);
+      }
+      markerStore.markerApi = null;
+    }
+
+    markerStore.markerTarget = targetSeries;
 
     if (typeof targetSeries.setMarkers === "function") {
       targetSeries.setMarkers(markers);
@@ -1722,7 +2022,15 @@
               <span class="multi-ai-levels">S -- • R --</span>
             </div>
             <div class="multi-ai-timeframes"></div>
-            <div class="multi-chart"></div>
+            <div class="multi-pane multi-pane-main">
+              <div class="multi-chart"></div>
+            </div>
+            <div class="multi-pane multi-pane-sub multi-rsi-pane">
+              <div class="multi-rsi-chart"></div>
+            </div>
+            <div class="multi-pane multi-pane-sub multi-macd-pane">
+              <div class="multi-macd-chart"></div>
+            </div>
           </article>
         `
       )
@@ -1736,19 +2044,166 @@
       const aiStatusNode = card.querySelector(".multi-ai-status");
       const aiLevelsNode = card.querySelector(".multi-ai-levels");
       const aiTimeframesNode = card.querySelector(".multi-ai-timeframes");
+      const mainPane = card.querySelector(".multi-pane-main");
+      const rsiPane = card.querySelector(".multi-rsi-pane");
+      const macdPane = card.querySelector(".multi-macd-pane");
       const chartNode = card.querySelector(".multi-chart");
+      const rsiNode = card.querySelector(".multi-rsi-chart");
+      const macdNode = card.querySelector(".multi-macd-chart");
 
       const chart = LightweightCharts.createChart(chartNode, buildPriceChartOptions(palette));
+      chart.priceScale("").applyOptions({
+        scaleMargins: {
+          top: 0.78,
+          bottom: 0
+        }
+      });
+
       const candleSeries = chart.addCandlestickSeries(candleSeriesOptions(palette));
+      const lineSeries = chart.addLineSeries({
+        color: palette.aux1,
+        lineWidth: 2,
+        priceLineVisible: false
+      });
+      const areaSeries = chart.addAreaSeries({
+        lineColor: palette.aux1,
+        topColor: colorWithAlpha(palette.aux1, 0.35),
+        bottomColor: colorWithAlpha(palette.aux1, 0.03),
+        lineWidth: 2,
+        priceLineVisible: false
+      });
+      const baselineSeries = chart.addBaselineSeries({
+        baseValue: { type: "price", price: 0 },
+        topLineColor: palette.up,
+        topFillColor1: colorWithAlpha(palette.up, 0.28),
+        topFillColor2: colorWithAlpha(palette.up, 0.03),
+        bottomLineColor: palette.down,
+        bottomFillColor1: colorWithAlpha(palette.down, 0.23),
+        bottomFillColor2: colorWithAlpha(palette.down, 0.03),
+        lineWidth: 2,
+        priceLineVisible: false
+      });
+      const volumeSeries = chart.addHistogramSeries({
+        priceScaleId: "",
+        priceFormat: { type: "volume" },
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      const smaSeries = chart.addLineSeries({
+        color: palette.accent,
+        lineWidth: 1.5,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      const emaSeries = chart.addLineSeries({
+        color: palette.aux2,
+        lineWidth: 1.5,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      const bbUpperSeries = chart.addLineSeries({
+        color: colorWithAlpha(palette.aux3, 0.95),
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dotted,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      const bbLowerSeries = chart.addLineSeries({
+        color: colorWithAlpha(palette.aux3, 0.95),
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dotted,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      const bbMiddleSeries = chart.addLineSeries({
+        color: colorWithAlpha(palette.aux3, 0.95),
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.SparseDotted,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+
+      const rsiChart = LightweightCharts.createChart(rsiNode, buildSubChartOptions(palette));
+      rsiChart.timeScale().applyOptions({ visible: false });
+      const rsiSeries = rsiChart.addLineSeries({
+        color: palette.aux1,
+        lineWidth: 1.5,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      const rsiUpperSeries = rsiChart.addLineSeries({
+        color: colorWithAlpha(palette.down, 0.9),
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        lineWidth: 1,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      const rsiLowerSeries = rsiChart.addLineSeries({
+        color: colorWithAlpha(palette.up, 0.9),
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        lineWidth: 1,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+
+      const macdChart = LightweightCharts.createChart(macdNode, buildSubChartOptions(palette));
+      macdChart.timeScale().applyOptions({ visible: false });
+      const macdLineSeries = macdChart.addLineSeries({
+        color: palette.aux1,
+        lineWidth: 1.5,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      const macdSignalSeries = macdChart.addLineSeries({
+        color: palette.warn,
+        lineWidth: 1.5,
+        lastValueVisible: false,
+        priceLineVisible: false
+      });
+      const macdHistSeries = macdChart.addHistogramSeries({
+        priceLineVisible: false,
+        lastValueVisible: false
+      });
+
+      chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+        if (!range) {
+          return;
+        }
+        rsiChart.timeScale().setVisibleLogicalRange(range);
+        macdChart.timeScale().setVisibleLogicalRange(range);
+      });
       chart.timeScale().applyOptions({ rightOffset: 3 });
 
       const slot = {
         index,
         symbol: sanitizeSymbol(symbolInput.value) || MULTI_DEFAULT_SYMBOLS[index] || "BTCUSDT",
         candles: [],
+        card,
+        mainPane,
+        rsiPane,
+        macdPane,
         chart,
-        series: candleSeries,
+        rsiChart,
+        macdChart,
         chartNode,
+        rsiNode,
+        macdNode,
+        candleSeries,
+        lineSeries,
+        areaSeries,
+        baselineSeries,
+        volumeSeries,
+        smaSeries,
+        emaSeries,
+        bbUpperSeries,
+        bbLowerSeries,
+        bbMiddleSeries,
+        rsiSeries,
+        rsiUpperSeries,
+        rsiLowerSeries,
+        macdLineSeries,
+        macdSignalSeries,
+        macdHistSeries,
         symbolInput,
         statusNode,
         aiStatusNode,
@@ -1767,6 +2222,7 @@
         }
       };
 
+      applyMultiRsiFixedScale(slot);
       setMultiAiStatus(slot, "neutral", "AI idle");
       updateMultiAiSummary(slot);
 
@@ -1794,6 +2250,7 @@
       return slot;
     });
 
+    updateMultiPaneVisibility();
     state.multiCharts.forEach((slot) => loadMultiSlot(slot));
     requestAnimationFrame(() => {
       resizeMultiCharts();
@@ -1870,8 +2327,11 @@
       }
 
       slot.candles = candles.map(toCandle).filter(Boolean);
-      slot.series.setData(slot.candles);
+      renderMultiPriceSeriesForSlot(slot);
+      renderMultiIndicatorsForSlot(slot);
       slot.chart.timeScale().fitContent();
+      slot.rsiChart.timeScale().fitContent();
+      slot.macdChart.timeScale().fitContent();
 
       const last = slot.candles[slot.candles.length - 1];
       slot.statusNode.textContent = last ? `${formatPrice(last.close)} • ${state.interval}` : `No data • ${state.interval}`;
@@ -1920,7 +2380,8 @@
         };
 
         upsertMultiSlotCandle(slot, candle);
-        slot.series.update(candle);
+        renderMultiPriceSeriesForSlot(slot);
+        renderMultiIndicatorsForSlot(slot);
         if (kline.x && state.ai.auto) {
           scheduleAiAnalysis(220);
         }
@@ -1987,9 +2448,9 @@
     state.multiCharts.forEach((slot) => {
       closeMultiSlotSocket(slot);
       clearMultiAiOverlays(slot);
-      if (slot.chart) {
-        slot.chart.remove();
-      }
+      slot.chart?.remove();
+      slot.rsiChart?.remove();
+      slot.macdChart?.remove();
     });
 
     state.multiCharts = [];
@@ -2002,13 +2463,28 @@
     }
 
     state.multiCharts.forEach((slot) => {
-      if (!slot.chartNode || !slot.chart) {
-        return;
+      if (slot.chartNode && slot.chart) {
+        const width = slot.chartNode.clientWidth;
+        const height = slot.chartNode.clientHeight;
+        if (width > 0 && height > 0) {
+          slot.chart.resize(width, height);
+        }
       }
-      const width = slot.chartNode.clientWidth;
-      const height = slot.chartNode.clientHeight;
-      if (width > 0 && height > 0) {
-        slot.chart.resize(width, height);
+
+      if (state.indicators.rsi && slot.rsiNode && slot.rsiChart) {
+        const rsiWidth = slot.rsiNode.clientWidth;
+        const rsiHeight = slot.rsiNode.clientHeight;
+        if (rsiWidth > 0 && rsiHeight > 0) {
+          slot.rsiChart.resize(rsiWidth, rsiHeight);
+        }
+      }
+
+      if (state.indicators.macd && slot.macdNode && slot.macdChart) {
+        const macdWidth = slot.macdNode.clientWidth;
+        const macdHeight = slot.macdNode.clientHeight;
+        if (macdWidth > 0 && macdHeight > 0) {
+          slot.macdChart.resize(macdWidth, macdHeight);
+        }
       }
     });
   }
@@ -2021,7 +2497,37 @@
     const palette = getPalette();
     state.multiCharts.forEach((slot) => {
       slot.chart.applyOptions(buildPriceChartOptions(palette));
-      slot.series.applyOptions(candleSeriesOptions(palette));
+      slot.candleSeries.applyOptions(candleSeriesOptions(palette));
+      slot.lineSeries.applyOptions({ color: palette.aux1 });
+      slot.areaSeries.applyOptions({
+        lineColor: palette.aux1,
+        topColor: colorWithAlpha(palette.aux1, 0.35),
+        bottomColor: colorWithAlpha(palette.aux1, 0.03)
+      });
+      slot.baselineSeries.applyOptions({
+        topLineColor: palette.up,
+        bottomLineColor: palette.down,
+        topFillColor1: colorWithAlpha(palette.up, 0.28),
+        topFillColor2: colorWithAlpha(palette.up, 0.03),
+        bottomFillColor1: colorWithAlpha(palette.down, 0.23),
+        bottomFillColor2: colorWithAlpha(palette.down, 0.03)
+      });
+      slot.volumeSeries.applyOptions({});
+      slot.smaSeries.applyOptions({ color: palette.accent });
+      slot.emaSeries.applyOptions({ color: palette.aux2 });
+      slot.bbUpperSeries.applyOptions({ color: colorWithAlpha(palette.aux3, 0.95) });
+      slot.bbLowerSeries.applyOptions({ color: colorWithAlpha(palette.aux3, 0.95) });
+      slot.bbMiddleSeries.applyOptions({ color: colorWithAlpha(palette.aux3, 0.95) });
+      slot.rsiChart.applyOptions(buildSubChartOptions(palette));
+      slot.macdChart.applyOptions(buildSubChartOptions(palette));
+      slot.rsiSeries.applyOptions({ color: palette.aux1 });
+      slot.rsiUpperSeries.applyOptions({ color: colorWithAlpha(palette.down, 0.9) });
+      slot.rsiLowerSeries.applyOptions({ color: colorWithAlpha(palette.up, 0.9) });
+      slot.macdLineSeries.applyOptions({ color: palette.aux1 });
+      slot.macdSignalSeries.applyOptions({ color: palette.warn });
+      renderMultiPriceSeriesForSlot(slot);
+      applyMultiRsiFixedScale(slot);
+      renderMultiIndicatorsForSlot(slot);
       if (slot.ai?.data) {
         applyAiForMultiSlotCurrentInterval(slot);
         updateMultiAiSummary(slot);
