@@ -15,6 +15,13 @@
   const BINANCE_SYMBOLS_CACHE_KEY = "bitcharts-binance-symbols";
   const BINANCE_SYMBOLS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
   const BINANCE_EXCHANGE_INFO_URLS = [`${REST_BASE}/exchangeInfo`, "https://api.binance.com/api/v3/exchangeInfo"];
+  const BINANCE_ALPHA_CACHE_KEY = "bitcharts-binance-alpha-symbols";
+  const BINANCE_ALPHA_TOKEN_LIST_URL =
+    "https://www.binance.com/bapi/defi/v1/public/wallet-direct/buw/wallet/cex/alpha/all/token/list";
+  const BINANCE_ALPHA_EXCHANGE_INFO_URL =
+    "https://www.binance.com/bapi/defi/v1/public/alpha-trade/get-exchange-info";
+  const BINANCE_ALPHA_KLINES_URL = "https://www.binance.com/bapi/defi/v1/public/alpha-trade/klines";
+  const BINANCE_ALPHA_TICKER_URL = "https://www.binance.com/bapi/defi/v1/public/alpha-trade/ticker";
   const MULTI_LAYOUT_PRESETS = {
     1: ["one"],
     2: ["two-cols", "two-rows"],
@@ -80,12 +87,24 @@
     reconnectTimers: {},
     livePollTimer: null,
     streamNonce: 0,
+    market: {
+      marketType: "spot",
+      displaySymbol: "BTCUSDT",
+      requestSymbol: "BTCUSDT"
+    },
     multiCharts: [],
     symbolCatalog: {
       loaded: false,
       loading: false,
       items: [],
       index: new Set()
+    },
+    alphaCatalog: {
+      loaded: false,
+      loading: false,
+      items: [],
+      index: new Set(),
+      byDisplay: new Map()
     },
     ai: {
       auto: true,
@@ -207,7 +226,9 @@
     initCharts();
     bindEvents();
     hydrateCachedBinanceSymbols();
+    hydrateCachedAlphaSymbols();
     loadBinanceSymbols();
+    loadAlphaSymbols();
     setActiveIntervalButton();
     setViewMode(state.multiCount, true);
     syncFullscreenButton();
@@ -744,9 +765,9 @@
     dom.pricePane.style.display = "block";
     dom.rsiPane.style.display = state.indicators.rsi ? "block" : "none";
     dom.macdPane.style.display = state.indicators.macd ? "block" : "none";
-    dom.indicatorSwitches.style.display = "flex";
-    dom.aiTimeframes.style.display = "grid";
-    dom.aiStatus.parentElement.style.display = "flex";
+    dom.indicatorSwitches.style.display = "none";
+    dom.aiTimeframes.style.display = "none";
+    dom.aiStatus.parentElement.style.display = "none";
 
     const isPhone = window.matchMedia("(max-width: 900px)").matches;
     const isCompact = window.matchMedia("(max-width: 1180px)").matches;
@@ -754,7 +775,7 @@
     const rsiHeight = isPhone ? 100 : isCompact ? 115 : 130;
     const macdHeight = isPhone ? 115 : isCompact ? 130 : 150;
 
-    const rows = ["auto", "auto", "auto", "auto", `minmax(${mainMin}px, 1fr)`];
+    const rows = ["auto", `minmax(${mainMin}px, 1fr)`];
     if (state.indicators.rsi) {
       rows.push(`${rsiHeight}px`);
     }
@@ -817,6 +838,64 @@
     requestAnimationFrame(resizeMultiCharts);
   }
 
+  async function fetchMarketSnapshot(market, interval) {
+    if (market?.marketType === "alpha") {
+      const [klinePayload, tickerPayload] = await Promise.all([
+        fetchJson(`${BINANCE_ALPHA_KLINES_URL}?symbol=${encodeURIComponent(market.requestSymbol)}&interval=${encodeURIComponent(interval)}&limit=${MAX_CANDLES}`),
+        fetchJson(`${BINANCE_ALPHA_TICKER_URL}?symbol=${encodeURIComponent(market.requestSymbol)}`)
+      ]);
+
+      return {
+        candles: Array.isArray(klinePayload?.data) ? klinePayload.data : [],
+        depth: { bids: [], asks: [] },
+        trades: [],
+        ticker: tickerPayload?.data || {}
+      };
+    }
+
+    const [candles, ticker] = await Promise.all([
+      fetchJson(`${REST_BASE}/klines?symbol=${market.requestSymbol}&interval=${interval}&limit=${MAX_CANDLES}`),
+      fetchJson(`${REST_BASE}/ticker/24hr?symbol=${market.requestSymbol}`)
+    ]);
+
+    return {
+      candles,
+      depth: { bids: [], asks: [] },
+      trades: [],
+      ticker
+    };
+  }
+
+  async function fetchLatestMarketCandles(market, interval, limit = 3) {
+    if (market?.marketType === "alpha") {
+      const payload = await fetchJson(
+        `${BINANCE_ALPHA_KLINES_URL}?symbol=${encodeURIComponent(market.requestSymbol)}&interval=${encodeURIComponent(interval)}&limit=${limit}`
+      );
+      return Array.isArray(payload?.data) ? payload.data : [];
+    }
+
+    return fetchJson(`${REST_BASE}/klines?symbol=${market.requestSymbol}&interval=${interval}&limit=${limit}`);
+  }
+
+  async function fetchMarketTicker(market) {
+    if (market?.marketType === "alpha") {
+      const payload = await fetchJson(`${BINANCE_ALPHA_TICKER_URL}?symbol=${encodeURIComponent(market.requestSymbol)}`);
+      return payload?.data || {};
+    }
+
+    return fetchJson(`${REST_BASE}/ticker/24hr?symbol=${market.requestSymbol}`);
+  }
+
+  function clearSingleMarketData() {
+    state.candles = [];
+    state.candleMap = new Map();
+    state.depth = { bids: [], asks: [] };
+    state.trades = [];
+    renderAll();
+    renderOrderBook();
+    renderTrades();
+  }
+
   async function loadMarket() {
     const symbol = sanitizeSymbol(dom.symbolInput.value) || state.symbol;
     state.symbol = symbol;
@@ -836,12 +915,30 @@
     setStatus("neutral", "Loading");
 
     try {
-      const [candles, depth, trades, ticker] = await Promise.all([
-        fetchJson(`${REST_BASE}/klines?symbol=${state.symbol}&interval=${state.interval}&limit=${MAX_CANDLES}`),
-        fetchJson(`${REST_BASE}/depth?symbol=${state.symbol}&limit=20`),
-        fetchJson(`${REST_BASE}/trades?symbol=${state.symbol}&limit=60`),
-        fetchJson(`${REST_BASE}/ticker/24hr?symbol=${state.symbol}`)
-      ]);
+      const market = await resolveMarketSymbol(state.symbol);
+      if (nonce !== state.streamNonce) {
+        return;
+      }
+
+      if (!market) {
+        state.market = {
+          marketType: "spot",
+          displaySymbol: state.symbol,
+          requestSymbol: state.symbol
+        };
+        clearSingleMarketData();
+        dom.ohlcRow.textContent = `${state.symbol} is not available on Binance Spot or Binance Alpha.`;
+        setStatus("disconnected", "Invalid symbol");
+        setAiStatus("error", "AI waiting for valid pair");
+        return;
+      }
+
+      state.market = market;
+      state.symbol = market.displaySymbol;
+      dom.symbolInput.value = market.displaySymbol;
+      dom.marketTitle.textContent = `${market.displaySymbol} • ${state.interval}`;
+
+      const { candles, depth, trades, ticker } = await fetchMarketSnapshot(market, state.interval);
 
       if (nonce !== state.streamNonce) {
         return;
@@ -871,12 +968,19 @@
       const changePct = Number(ticker.priceChangePercent);
       const lastPriceText = last ? formatPrice(last.close) : "--";
       const pctText = Number.isFinite(changePct) ? `${changePct.toFixed(2)}%` : "--";
-      dom.marketTitle.textContent = `${state.symbol} • ${state.interval} • ${lastPriceText} (${pctText})`;
+      const marketTag = market.marketType === "alpha" ? " • Alpha" : "";
+      dom.marketTitle.textContent = `${market.displaySymbol} • ${state.interval} • ${lastPriceText} (${pctText})${marketTag}`;
 
-      openSymbolStreams(nonce);
+      if (market.marketType === "spot") {
+        openSymbolStreams(nonce);
+      }
       startLivePolling();
-      setStatus("connected", "Live");
-      scheduleAiAnalysis(350);
+      setStatus("connected", market.marketType === "alpha" ? "Alpha Live" : "Live");
+      if (market.marketType === "alpha") {
+        setAiStatus("neutral", "AI unavailable for Alpha");
+      } else {
+        scheduleAiAnalysis(350);
+      }
     } catch (error) {
       setStatus("disconnected", "Load failed");
       dom.ohlcRow.textContent = "Unable to load symbol/interval from Binance.";
@@ -1318,6 +1422,11 @@
       return;
     }
 
+    if (state.market?.marketType === "alpha") {
+      setAiStatus("neutral", "AI unavailable for Alpha");
+      return;
+    }
+
     const now = Date.now();
     if (!force && now - state.ai.lastRunAt < AI_MIN_REFRESH_MS) {
       return;
@@ -1437,6 +1546,12 @@
     }
 
     if (slot.ai.loading) {
+      return false;
+    }
+
+    if (slot.market?.marketType === "alpha") {
+      setMultiAiStatus(slot, "neutral", "AI Alpha off");
+      updateMultiAiSummary(slot);
       return false;
     }
 
@@ -1929,8 +2044,26 @@
     }
   }
 
-  async function loadBinanceSymbols() {
-    if (state.symbolCatalog.loading) {
+  function hydrateCachedAlphaSymbols() {
+    try {
+      const cached = JSON.parse(localStorage.getItem(BINANCE_ALPHA_CACHE_KEY) || "null");
+      if (!cached || !Array.isArray(cached.items) || !cached.items.length) {
+        return;
+      }
+
+      const age = Date.now() - Number(cached.savedAt || 0);
+      if (!Number.isFinite(age) || age > BINANCE_SYMBOLS_CACHE_TTL_MS) {
+        return;
+      }
+
+      applyAlphaSymbols(cached.items);
+    } catch {
+      // Ignore corrupted cache and fetch a fresh alpha catalog on demand.
+    }
+  }
+
+  async function loadBinanceSymbols(force = false) {
+    if (!force && (state.symbolCatalog.loading || state.symbolCatalog.loaded)) {
       return;
     }
 
@@ -1956,6 +2089,40 @@
       console.error("Unable to load Binance symbols:", error);
     } finally {
       state.symbolCatalog.loading = false;
+    }
+  }
+
+  async function loadAlphaSymbols(force = false) {
+    if (!force && (state.alphaCatalog.loading || state.alphaCatalog.loaded)) {
+      return;
+    }
+
+    state.alphaCatalog.loading = true;
+
+    try {
+      const [tokenPayload, exchangePayload] = await Promise.all([
+        fetchJson(BINANCE_ALPHA_TOKEN_LIST_URL),
+        fetchJson(BINANCE_ALPHA_EXCHANGE_INFO_URL)
+      ]);
+
+      const items = normalizeAlphaSymbols(tokenPayload?.data, exchangePayload?.data?.symbols);
+      if (!items.length) {
+        return;
+      }
+
+      applyAlphaSymbols(items);
+      localStorage.setItem(
+        BINANCE_ALPHA_CACHE_KEY,
+        JSON.stringify({
+          savedAt: Date.now(),
+          items
+        })
+      );
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("Unable to load Binance Alpha symbols:", error);
+    } finally {
+      state.alphaCatalog.loading = false;
     }
   }
 
@@ -1995,11 +2162,55 @@
         return Boolean(entry.symbol && entry.baseAsset && entry.quoteAsset);
       })
       .map((entry) => ({
+        marketType: "spot",
+        displaySymbol: String(entry.symbol).toUpperCase(),
+        requestSymbol: String(entry.symbol).toUpperCase(),
         symbol: String(entry.symbol).toUpperCase(),
         baseAsset: String(entry.baseAsset).toUpperCase(),
         quoteAsset: String(entry.quoteAsset).toUpperCase()
       }))
       .sort((left, right) => left.symbol.localeCompare(right.symbol));
+
+    return items;
+  }
+
+  function normalizeAlphaSymbols(rawTokens, rawExchangeSymbols) {
+    if (!Array.isArray(rawTokens) || !Array.isArray(rawExchangeSymbols)) {
+      return [];
+    }
+
+    const alphaNames = new Map();
+    for (const token of rawTokens) {
+      const alphaId = String(token?.alphaId || "").toUpperCase();
+      const humanSymbol = String(token?.symbol || "").toUpperCase();
+      if (!alphaId || !humanSymbol) {
+        continue;
+      }
+      alphaNames.set(alphaId, humanSymbol);
+    }
+
+    const items = rawExchangeSymbols
+      .filter((entry) => entry?.status === "TRADING")
+      .map((entry) => {
+        const baseAsset = String(entry?.baseAsset || "").toUpperCase();
+        const quoteAsset = String(entry?.quoteAsset || "").toUpperCase();
+        const exchangeSymbol = String(entry?.symbol || "").toUpperCase();
+        const humanBase = alphaNames.get(baseAsset);
+        if (!humanBase || !quoteAsset || !exchangeSymbol) {
+          return null;
+        }
+
+        return {
+          marketType: "alpha",
+          displaySymbol: `${humanBase}${quoteAsset}`,
+          requestSymbol: exchangeSymbol,
+          symbol: `${humanBase}${quoteAsset}`,
+          baseAsset: humanBase,
+          quoteAsset
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => left.displaySymbol.localeCompare(right.displaySymbol));
 
     return items;
   }
@@ -2012,22 +2223,50 @@
     updateSymbolInputHints();
   }
 
+  function applyAlphaSymbols(items) {
+    state.alphaCatalog.items = items;
+    state.alphaCatalog.index = new Set(items.map((item) => item.displaySymbol));
+    state.alphaCatalog.byDisplay = new Map(items.map((item) => [item.displaySymbol, item]));
+    state.alphaCatalog.loaded = items.length > 0;
+    renderSymbolDatalist();
+    updateSymbolInputHints();
+  }
+
   function renderSymbolDatalist() {
     if (!dom.symbolList) {
       return;
     }
 
-    dom.symbolList.innerHTML = state.symbolCatalog.items
-      .map(
-        (item) =>
-          `<option value="${item.symbol}" label="${item.baseAsset}/${item.quoteAsset} • Binance Spot"></option>`
-      )
+    const seen = new Set();
+    const items = [];
+
+    for (const item of state.symbolCatalog.items) {
+      if (seen.has(item.displaySymbol)) {
+        continue;
+      }
+      seen.add(item.displaySymbol);
+      items.push(item);
+    }
+
+    for (const item of state.alphaCatalog.items) {
+      if (seen.has(item.displaySymbol)) {
+        continue;
+      }
+      seen.add(item.displaySymbol);
+      items.push(item);
+    }
+
+    dom.symbolList.innerHTML = items
+      .map((item) => {
+        const marketLabel = item.marketType === "alpha" ? "Binance Alpha" : "Binance Spot";
+        return `<option value="${item.displaySymbol}" label="${item.baseAsset}/${item.quoteAsset} • ${marketLabel}"></option>`;
+      })
       .join("");
   }
 
   function updateSymbolInputHints() {
-    const count = state.symbolCatalog.items.length;
-    const hint = count ? `Search ${count} Binance spot pairs` : "Search Binance pair";
+    const count = state.symbolCatalog.items.length + state.alphaCatalog.items.length;
+    const hint = count ? `Search ${count} Binance pairs and Alpha markets` : "Search Binance pair";
 
     configureSymbolInput(dom.symbolInput);
     dom.symbolInput.placeholder = hint;
@@ -2050,6 +2289,42 @@
     }
 
     return symbol;
+  }
+
+  async function resolveMarketSymbol(symbol) {
+    const normalized = normalizeSymbolInputValue(symbol);
+    if (!normalized) {
+      return null;
+    }
+
+    if (state.symbolCatalog.index.has(normalized)) {
+      return {
+        marketType: "spot",
+        displaySymbol: normalized,
+        requestSymbol: normalized
+      };
+    }
+
+    await loadBinanceSymbols(true);
+    if (state.symbolCatalog.index.has(normalized)) {
+      return {
+        marketType: "spot",
+        displaySymbol: normalized,
+        requestSymbol: normalized
+      };
+    }
+
+    await loadAlphaSymbols(true);
+    const alphaItem = state.alphaCatalog.byDisplay.get(normalized);
+    if (alphaItem) {
+      return {
+        marketType: "alpha",
+        displaySymbol: alphaItem.displaySymbol,
+        requestSymbol: alphaItem.requestSymbol
+      };
+    }
+
+    return null;
   }
 
   function loadMultiLayouts() {
@@ -2410,7 +2685,13 @@
         aiStatusNode,
         aiLevelsNode,
         aiTimeframesNode,
+        market: {
+          marketType: "spot",
+          displaySymbol: sanitizeSymbol(symbolInput.value) || MULTI_DEFAULT_SYMBOLS[index] || "BTCUSDT",
+          requestSymbol: sanitizeSymbol(symbolInput.value) || MULTI_DEFAULT_SYMBOLS[index] || "BTCUSDT"
+        },
         ws: null,
+        pollTimer: null,
         reconnectTimer: null,
         nonce: 0,
         ai: {
@@ -2514,7 +2795,35 @@
     slot.statusNode.textContent = "Loading";
 
     try {
-      const candles = await fetchJson(`${REST_BASE}/klines?symbol=${slot.symbol}&interval=${state.interval}&limit=${MAX_CANDLES}`);
+      const market = await resolveMarketSymbol(slot.symbol);
+      if (nonce !== slot.nonce || !isMultiMode()) {
+        return;
+      }
+
+      if (!market) {
+        slot.market = {
+          marketType: "spot",
+          displaySymbol: slot.symbol,
+          requestSymbol: slot.symbol
+        };
+        slot.candles = [];
+        renderMultiPriceSeriesForSlot(slot);
+        renderMultiIndicatorsForSlot(slot);
+        slot.statusNode.textContent = "Not on Binance";
+        slot.statusNode.title = `${slot.symbol} is not available on Binance Spot or Binance Alpha.`;
+        setMultiAiStatus(slot, "error", "AI wait");
+        return;
+      }
+
+      slot.market = market;
+      slot.symbol = market.displaySymbol;
+      slot.symbolInput.value = market.displaySymbol;
+      if (slot.index === 0) {
+        state.symbol = market.displaySymbol;
+        dom.symbolInput.value = market.displaySymbol;
+      }
+
+      const { candles, ticker } = await fetchMarketSnapshot(market, state.interval);
       if (nonce !== slot.nonce || !isMultiMode()) {
         return;
       }
@@ -2527,9 +2836,18 @@
       slot.macdChart.timeScale().fitContent();
 
       const last = slot.candles[slot.candles.length - 1];
-      slot.statusNode.textContent = last ? `${formatPrice(last.close)} • ${state.interval}` : `No data • ${state.interval}`;
-      runAiForMultiSlot(slot, true);
-      openMultiSlotSocket(slot, nonce);
+      const marketTag = market.marketType === "alpha" ? " • Alpha" : "";
+      const changePct = Number(ticker?.priceChangePercent);
+      const pctText = Number.isFinite(changePct) ? ` • ${changePct.toFixed(2)}%` : "";
+      slot.statusNode.textContent = last ? `${formatPrice(last.close)} • ${state.interval}${marketTag}${pctText}` : `No data • ${state.interval}`;
+      slot.statusNode.title = market.marketType === "alpha" ? `${market.displaySymbol} via Binance Alpha` : market.displaySymbol;
+      if (market.marketType === "alpha") {
+        setMultiAiStatus(slot, "neutral", "AI Alpha off");
+        openMultiSlotPoller(slot, nonce);
+      } else {
+        runAiForMultiSlot(slot, true);
+        openMultiSlotSocket(slot, nonce);
+      }
     } catch {
       if (nonce !== slot.nonce) {
         return;
@@ -2540,6 +2858,10 @@
   }
 
   function openMultiSlotSocket(slot, nonce) {
+    if (slot.market?.marketType === "alpha") {
+      return;
+    }
+
     const stream = `${slot.symbol.toLowerCase()}@kline_${state.interval}`;
     const ws = new WebSocket(`${WS_BASE}/${stream}`);
     slot.ws = ws;
@@ -2605,6 +2927,43 @@
     });
   }
 
+  function openMultiSlotPoller(slot, nonce) {
+    if (slot.pollTimer) {
+      clearInterval(slot.pollTimer);
+    }
+
+    slot.pollTimer = setInterval(async () => {
+      if (slot.nonce !== nonce || !isMultiMode() || slot.market?.marketType !== "alpha") {
+        return;
+      }
+
+      try {
+        const [raw, ticker] = await Promise.all([
+          fetchLatestMarketCandles(slot.market, state.interval, 3),
+          fetchMarketTicker(slot.market)
+        ]);
+
+        if (slot.nonce !== nonce || !isMultiMode() || slot.market?.marketType !== "alpha") {
+          return;
+        }
+
+        const latest = (raw || []).map(toCandle).filter(Boolean).slice(-2);
+        latest.forEach((candle) => upsertMultiSlotCandle(slot, candle));
+        renderMultiPriceSeriesForSlot(slot);
+        renderMultiIndicatorsForSlot(slot);
+
+        const last = slot.candles[slot.candles.length - 1];
+        const changePct = Number(ticker?.priceChangePercent);
+        const pctText = Number.isFinite(changePct) ? ` • ${changePct.toFixed(2)}%` : "";
+        slot.statusNode.textContent = last
+          ? `${formatPrice(last.close)} • ${state.interval} • Alpha${pctText}`
+          : `No data • ${state.interval}`;
+      } catch {
+        // Ignore polling errors and keep the last rendered alpha state.
+      }
+    }, 4000);
+  }
+
   function upsertMultiSlotCandle(slot, candle) {
     const last = slot.candles[slot.candles.length - 1];
 
@@ -2622,6 +2981,11 @@
   }
 
   function closeMultiSlotSocket(slot) {
+    if (slot.pollTimer) {
+      clearInterval(slot.pollTimer);
+      slot.pollTimer = null;
+    }
+
     if (slot.reconnectTimer) {
       clearTimeout(slot.reconnectTimer);
       slot.reconnectTimer = null;
@@ -2759,6 +3123,10 @@
   }
 
   function openSymbolStreams(nonce) {
+    if (state.market?.marketType === "alpha") {
+      return;
+    }
+
     const lower = state.symbol.toLowerCase();
     openSocket(
       "kline",
@@ -2783,41 +3151,6 @@
         if (k.x) {
           scheduleAiAnalysis(250);
         }
-      },
-      nonce
-    );
-
-    openSocket(
-      "depth",
-      `${WS_BASE}/${lower}@depth20@100ms`,
-      (payload) => {
-        const asks = payload.asks || payload.a || [];
-        const bids = payload.bids || payload.b || [];
-        state.depth = {
-          asks: asks.map(([price, qty]) => [Number(price), Number(qty)]),
-          bids: bids.map(([price, qty]) => [Number(price), Number(qty)])
-        };
-        renderOrderBook();
-      },
-      nonce
-    );
-
-    openSocket(
-      "trade",
-      `${WS_BASE}/${lower}@trade`,
-      (payload) => {
-        const trade = {
-          time: Number(payload.T),
-          price: Number(payload.p),
-          qty: Number(payload.q),
-          isBuyerMaker: Boolean(payload.m)
-        };
-
-        state.trades.unshift(trade);
-        if (state.trades.length > 80) {
-          state.trades.length = 80;
-        }
-        renderTrades();
       },
       nonce
     );
@@ -2912,14 +3245,20 @@
 
     const symbol = state.symbol;
     const interval = state.interval;
+    const market = state.market;
 
-    if (!symbol || !interval) {
+    if (!symbol || !interval || !market?.requestSymbol) {
       return;
     }
 
     try {
-      const raw = await fetchJson(`${REST_BASE}/klines?symbol=${symbol}&interval=${interval}&limit=3`);
-      if (isMultiMode() || symbol !== state.symbol || interval !== state.interval) {
+      const [raw, ticker] = await Promise.all([fetchLatestMarketCandles(market, interval, 3), fetchMarketTicker(market)]);
+      if (
+        isMultiMode() ||
+        symbol !== state.symbol ||
+        interval !== state.interval ||
+        market.requestSymbol !== state.market?.requestSymbol
+      ) {
         return;
       }
 
@@ -2932,6 +3271,12 @@
       renderPriceSeries();
       renderIndicators();
       updateOhlcFromLast();
+      const last = state.candles[state.candles.length - 1];
+      const changePct = Number(ticker?.priceChangePercent);
+      const lastPriceText = last ? formatPrice(last.close) : "--";
+      const pctText = Number.isFinite(changePct) ? `${changePct.toFixed(2)}%` : "--";
+      const marketTag = market.marketType === "alpha" ? " • Alpha" : "";
+      dom.marketTitle.textContent = `${state.symbol} • ${state.interval} • ${lastPriceText} (${pctText})${marketTag}`;
     } catch {
       // Ignore polling failures; websocket remains primary source.
     }
@@ -2942,16 +3287,21 @@
       return;
     }
 
+    if (state.market?.marketType === "alpha") {
+      setStatus("connected", "Alpha Live");
+      return;
+    }
+
     const sockets = Object.values(state.sockets);
     const openCount = sockets.filter((ws) => ws.readyState === WebSocket.OPEN).length;
 
-    if (openCount >= 3) {
+    if (openCount >= 1) {
       setStatus("connected", "Live");
       return;
     }
 
     if (openCount > 0) {
-      setStatus("neutral", `Connecting ${openCount}/3`);
+      setStatus("neutral", `Connecting ${openCount}/1`);
       return;
     }
 
@@ -2977,6 +3327,10 @@
   }
 
   function renderOrderBook() {
+    if (!dom.orderbook) {
+      return;
+    }
+
     if (!state.depth.bids.length || !state.depth.asks.length) {
       dom.orderbook.innerHTML = `<div class=\"muted\">No order book data</div>`;
       return;
@@ -3019,6 +3373,10 @@
   }
 
   function renderTrades() {
+    if (!dom.trades) {
+      return;
+    }
+
     if (!state.trades.length) {
       dom.trades.innerHTML = `<div class=\"muted\">No trades</div>`;
       return;
