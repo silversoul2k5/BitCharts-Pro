@@ -12,6 +12,9 @@
   const AI_TIMEFRAMES = ["1d", "4h", "1h", "15m"];
   const MULTI_DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"];
   const MULTI_LAYOUT_STORAGE_KEY = "bitcharts-multi-layouts";
+  const BINANCE_SYMBOLS_CACHE_KEY = "bitcharts-binance-symbols";
+  const BINANCE_SYMBOLS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+  const BINANCE_EXCHANGE_INFO_URLS = [`${REST_BASE}/exchangeInfo`, "https://api.binance.com/api/v3/exchangeInfo"];
   const MULTI_LAYOUT_PRESETS = {
     1: ["one"],
     2: ["two-cols", "two-rows"],
@@ -78,6 +81,12 @@
     livePollTimer: null,
     streamNonce: 0,
     multiCharts: [],
+    symbolCatalog: {
+      loaded: false,
+      loading: false,
+      items: [],
+      index: new Set()
+    },
     ai: {
       auto: true,
       enabled: true,
@@ -123,6 +132,7 @@
     layoutMenuToggle: document.getElementById("layout-menu-toggle"),
     layoutMenuPanel: document.getElementById("layout-menu-panel"),
     layoutOptions: document.querySelectorAll(".layout-option"),
+    symbolList: document.getElementById("symbol-list"),
     aiAuto: document.getElementById("ai-auto"),
     aiStatus: document.getElementById("ai-status"),
     aiTimeframes: document.getElementById("ai-timeframes"),
@@ -188,6 +198,7 @@
     dom.multiCount.value = String(state.multiCount);
     dom.geminiKeyInput.value = state.ai.apiKey;
     ensureMultiLayoutDefaults();
+    configureSymbolInput(dom.symbolInput);
     updateLayoutMenuState();
     closeLayoutMenu();
     setAiStatus("neutral", "AI idle");
@@ -195,6 +206,8 @@
 
     initCharts();
     bindEvents();
+    hydrateCachedBinanceSymbols();
+    loadBinanceSymbols();
     setActiveIntervalButton();
     setViewMode(state.multiCount, true);
     syncFullscreenButton();
@@ -203,17 +216,13 @@
   function bindEvents() {
     dom.symbolInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
-        const symbol = sanitizeSymbol(dom.symbolInput.value);
-        if (!symbol) {
-          return;
-        }
-        state.symbol = symbol;
-        if (isMultiMode()) {
-          updatePrimaryMultiSymbol(symbol);
-        } else {
-          loadMarket();
-        }
+        event.preventDefault();
+        commitPrimarySymbolInput();
       }
+    });
+
+    dom.symbolInput.addEventListener("change", () => {
+      commitPrimarySymbolInput();
     });
 
     dom.intervalGroup.addEventListener("click", (event) => {
@@ -254,7 +263,7 @@
     });
 
     dom.reloadBtn.addEventListener("click", () => {
-      const symbol = sanitizeSymbol(dom.symbolInput.value);
+      const symbol = normalizeSymbolInputValue(dom.symbolInput.value);
       if (symbol) {
         state.symbol = symbol;
       }
@@ -593,6 +602,56 @@
     window.addEventListener("resize", updateMultiPaneVisibility);
     window.addEventListener("resize", resizeMultiCharts);
     resizeCharts();
+  }
+
+  function configureSymbolInput(input) {
+    if (!input) {
+      return;
+    }
+
+    input.setAttribute("list", "symbol-list");
+    input.setAttribute("autocapitalize", "characters");
+    if (!input.placeholder) {
+      input.placeholder = "Search Binance pair";
+    }
+  }
+
+  function commitPrimarySymbolInput() {
+    const symbol = normalizeSymbolInputValue(dom.symbolInput.value);
+    if (!symbol) {
+      return;
+    }
+
+    state.symbol = symbol;
+    dom.symbolInput.value = symbol;
+
+    if (isMultiMode()) {
+      updatePrimaryMultiSymbol(symbol);
+      return;
+    }
+
+    loadMarket();
+  }
+
+  function commitMultiSymbolInput(slot) {
+    if (!slot?.symbolInput) {
+      return;
+    }
+
+    const symbol = normalizeSymbolInputValue(slot.symbolInput.value);
+    if (!symbol) {
+      return;
+    }
+
+    slot.symbol = symbol;
+    slot.symbolInput.value = symbol;
+
+    if (slot.index === 0) {
+      state.symbol = symbol;
+      dom.symbolInput.value = symbol;
+    }
+
+    loadMultiSlot(slot);
   }
 
   function buildPriceChartOptions(palette) {
@@ -1852,6 +1911,147 @@
     return nearest;
   }
 
+  function hydrateCachedBinanceSymbols() {
+    try {
+      const cached = JSON.parse(localStorage.getItem(BINANCE_SYMBOLS_CACHE_KEY) || "null");
+      if (!cached || !Array.isArray(cached.items) || !cached.items.length) {
+        return;
+      }
+
+      const age = Date.now() - Number(cached.savedAt || 0);
+      if (!Number.isFinite(age) || age > BINANCE_SYMBOLS_CACHE_TTL_MS) {
+        return;
+      }
+
+      applyBinanceSymbols(cached.items);
+    } catch {
+      // Ignore corrupted cache and fetch a fresh catalog.
+    }
+  }
+
+  async function loadBinanceSymbols() {
+    if (state.symbolCatalog.loading) {
+      return;
+    }
+
+    state.symbolCatalog.loading = true;
+
+    try {
+      const payload = await fetchFirstJson(BINANCE_EXCHANGE_INFO_URLS);
+      const items = normalizeBinanceSymbols(payload?.symbols);
+      if (!items.length) {
+        return;
+      }
+
+      applyBinanceSymbols(items);
+      localStorage.setItem(
+        BINANCE_SYMBOLS_CACHE_KEY,
+        JSON.stringify({
+          savedAt: Date.now(),
+          items
+        })
+      );
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("Unable to load Binance symbols:", error);
+    } finally {
+      state.symbolCatalog.loading = false;
+    }
+  }
+
+  async function fetchFirstJson(urls) {
+    let lastError = null;
+
+    for (const url of urls) {
+      try {
+        return await fetchJson(url);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError || new Error("Request failed");
+  }
+
+  function normalizeBinanceSymbols(rawSymbols) {
+    if (!Array.isArray(rawSymbols)) {
+      return [];
+    }
+
+    const items = rawSymbols
+      .filter((entry) => {
+        if (!entry || entry.status !== "TRADING") {
+          return false;
+        }
+
+        if (entry.isSpotTradingAllowed === false) {
+          return false;
+        }
+
+        if (Array.isArray(entry.permissions) && entry.permissions.length && !entry.permissions.includes("SPOT")) {
+          return false;
+        }
+
+        return Boolean(entry.symbol && entry.baseAsset && entry.quoteAsset);
+      })
+      .map((entry) => ({
+        symbol: String(entry.symbol).toUpperCase(),
+        baseAsset: String(entry.baseAsset).toUpperCase(),
+        quoteAsset: String(entry.quoteAsset).toUpperCase()
+      }))
+      .sort((left, right) => left.symbol.localeCompare(right.symbol));
+
+    return items;
+  }
+
+  function applyBinanceSymbols(items) {
+    state.symbolCatalog.items = items;
+    state.symbolCatalog.index = new Set(items.map((item) => item.symbol));
+    state.symbolCatalog.loaded = items.length > 0;
+    renderSymbolDatalist();
+    updateSymbolInputHints();
+  }
+
+  function renderSymbolDatalist() {
+    if (!dom.symbolList) {
+      return;
+    }
+
+    dom.symbolList.innerHTML = state.symbolCatalog.items
+      .map(
+        (item) =>
+          `<option value="${item.symbol}" label="${item.baseAsset}/${item.quoteAsset} • Binance Spot"></option>`
+      )
+      .join("");
+  }
+
+  function updateSymbolInputHints() {
+    const count = state.symbolCatalog.items.length;
+    const hint = count ? `Search ${count} Binance spot pairs` : "Search Binance pair";
+
+    configureSymbolInput(dom.symbolInput);
+    dom.symbolInput.placeholder = hint;
+    dom.symbolInput.title = hint;
+
+    state.multiCharts.forEach((slot) => {
+      if (!slot?.symbolInput) {
+        return;
+      }
+      configureSymbolInput(slot.symbolInput);
+      slot.symbolInput.placeholder = hint;
+      slot.symbolInput.title = hint;
+    });
+  }
+
+  function normalizeSymbolInputValue(raw) {
+    const symbol = sanitizeSymbol(raw);
+    if (!symbol) {
+      return null;
+    }
+
+    return symbol;
+  }
+
   function loadMultiLayouts() {
     const fallback = {
       1: MULTI_LAYOUT_DEFAULTS[1],
@@ -2014,7 +2214,7 @@
         (symbol, index) => `
           <article class="multi-card" data-slot="${index}">
             <div class="multi-card-head">
-              <input class="multi-symbol" type="text" value="${symbol}" spellcheck="false" autocomplete="off" />
+              <input class="multi-symbol" type="text" value="${symbol}" spellcheck="false" autocomplete="off" list="symbol-list" />
               <span class="multi-status">Loading</span>
             </div>
             <div class="multi-ai-head">
@@ -2050,6 +2250,7 @@
       const chartNode = card.querySelector(".multi-chart");
       const rsiNode = card.querySelector(".multi-rsi-chart");
       const macdNode = card.querySelector(".multi-macd-chart");
+      configureSymbolInput(symbolInput);
 
       const chart = LightweightCharts.createChart(chartNode, buildPriceChartOptions(palette));
       chart.priceScale("").applyOptions({
@@ -2230,26 +2431,18 @@
         if (event.key !== "Enter") {
           return;
         }
+        event.preventDefault();
+        commitMultiSymbolInput(slot);
+      });
 
-        const nextSymbol = sanitizeSymbol(symbolInput.value);
-        if (!nextSymbol) {
-          return;
-        }
-
-        slot.symbol = nextSymbol;
-        symbolInput.value = nextSymbol;
-
-        if (slot.index === 0) {
-          state.symbol = nextSymbol;
-          dom.symbolInput.value = nextSymbol;
-        }
-
-        loadMultiSlot(slot);
+      symbolInput.addEventListener("change", () => {
+        commitMultiSymbolInput(slot);
       });
 
       return slot;
     });
 
+    updateSymbolInputHints();
     updateMultiPaneVisibility();
     state.multiCharts.forEach((slot) => loadMultiSlot(slot));
     requestAnimationFrame(() => {
