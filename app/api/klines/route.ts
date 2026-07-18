@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 30; // Revalidate every 30 seconds
 
 const VALID_INTERVALS = new Set(['1m', '5m', '15m', '1h', '4h', '1d', '1w']);
 const SYMBOL_RE = /^[A-Z0-9]{3,20}$/;
@@ -40,16 +40,8 @@ export async function GET(request: Request) {
       volume: Number(k[5]),
     }));
 
-    return NextResponse.json(
-      { symbol, interval, bars },
-      {
-        headers: {
-          // Edge-cache briefly; historical candles don't need per-request freshness,
-          // the live WebSocket handles real-time updates on top of this.
-          'Cache-Control': 'public, s-maxage=5, stale-while-revalidate=30',
-        },
-      }
-    );
+    // The `revalidate` export handles caching. No need for Cache-Control headers here.
+    return NextResponse.json({ symbol, interval, bars });
   } catch {
     return NextResponse.json({ error: 'failed to reach Binance' }, { status: 502 });
   }
