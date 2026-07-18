@@ -38,7 +38,7 @@ export async function GET(request: Request) {
         .slice(0, 50);
       if (!symbols.length) return NextResponse.json({ error: 'no valid symbols' }, { status: 400 });
 
-      const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(symbols))}`;
+      const url = `https://api.binance.us/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(symbols))}`;
       const res = await fetch(url, { headers: { Accept: 'application/json' } });
       if (!res.ok) return NextResponse.json({ error: 'binance error' }, { status: res.status });
       const raw: BinanceTicker24hr[] = await res.json();
@@ -49,7 +49,7 @@ export async function GET(request: Request) {
     }
 
     // No specific symbols requested: return top-N USDT pairs by quote volume.
-    const res = await fetch('https://api.binance.com/api/v3/ticker/24hr', {
+    const res = await fetch('https://api.binance.us/api/v3/ticker/24hr', {
       headers: { Accept: 'application/json' },
     });
     if (!res.ok) return NextResponse.json({ error: 'binance error' }, { status: res.status });
